@@ -1,5 +1,5 @@
-  Devvault SDD (Software Design Document)
-This explains the "How" and the technical architecture. (Show this to your tech guys!)
+  **Devvault SDD (Software Design Document)**
+This explains the "How" and the technical architecture
 1. System Architecture:
 DevVault uses a Client-Server architecture with an Offline-First approach.
 Frontend: Flutter framework (compiles to Android, Windows, and Web). Uses local SQLite for instant offline access.
