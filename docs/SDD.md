@@ -1,4 +1,5 @@
-  **Devvault SDD (Software Design Document)**
+  DEVVAULT SOFTWARE DESIGN DOCUMENT(SDD)
+  
 This explains the "How" and the technical architecture
 1. System Architecture:
 DevVault uses a Client-Server architecture with an Offline-First approach.
