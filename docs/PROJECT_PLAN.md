@@ -1,22 +1,19 @@
-# Notepads - Project Plan
+1. PRD (Product Requirements Document)
+This explains the "Why" and the "Value" of your project.
+Project Name: DevVault
+Tagline: The Offline-First Knowledge Hub for Computer Science Students.
 
-## Method
-Agile: build in small sprints, test, repeat.
+1. The Problem:
+University students struggle with fragmented study materials. Notes are scattered across notebooks, WhatsApp messages, and random folders. Sharing code on messaging apps breaks the formatting. Furthermore, students in areas with poor internet connectivity cannot access cloud-based tools like Notion or Google Docs to study. When senior students graduate, their valuable past questions and notes are lost.
 
-## Roles
-- Him: SRS/UML/UI + app screens
-- Me: DB schema + API + sync + security
+3. The Solution:
+DevVault is a cross-platform application (Phone, PC, Web) that serves as a personal brain-backup and a departmental knowledge base. It allows students to capture text, code, voice recordings, and photos. It operates entirely offline and seamlessly syncs to the cloud when an internet connection is available.
 
-## Tonight
-- Hour 1: repo + docs
-- Hour 2: ERD + tables (me) / Flutter + home screen (him)
-- Hour 3-4: Express + auth API (me) / SQLite CRUD (him)
-- Hour 5: connect app to API
-- Last: test, commit, push
+5. Core Value Proposition (The 3 Rooms):
+Private Room: A personal, offline-first diary for individual notes and recordings.
+Friends Room: Secure sharing via secret links or collaborative folders for study groups.
+Department Hall: A public board where professors and class reps can publish announcements, past questions, and resources for the entire department.
 
-## Milestones
-- M1: notes + folders + search offline
-- M2: auth + cloud sync
-- M3: photos + voice + speech-to-text
-- M4: music/video + themes
-- M5: lock + backup + final tests
+7. Target Audience:
+Primary: Computer Science students and faculty.
+Secondary: Expandable to any university department (Medicine, Law, Engineering).
