@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
@@ -436,7 +435,6 @@ class _NoteEditorState extends State<NoteEditor> {
   String? _recordedPath;
   String? _uploadedAudioUrl;
   
-  List<String> _attachedImages = [];
   List<String> _uploadedImageUrls = [];
   
   String? _youtubeUrl;
@@ -533,37 +531,29 @@ class _NoteEditorState extends State<NoteEditor> {
     await _audioPlayer.play(UrlSource('$apiUrl$url'));
   }
 
-  // ---- PHOTO ATTACHMENTS ----
-  Future<void> _pickImage() async {
+  // ---- PHOTO ATTACHMENTS (Web-compatible) ----
+  Future<void> _pickAndUploadImage() async {
     final picked = await _picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
-      setState(() => _attachedImages.add(picked.path));
-    }
-  }
-
-  Future<void> _uploadImages() async {
-    for (final path in _attachedImages) {
-      final file = File(path);
+      final bytes = await picked.readAsBytes();
       final request = http.MultipartRequest('POST', Uri.parse('$apiUrl/upload'))
         ..headers['Authorization'] = 'Bearer ${widget.token}'
-        ..files.add(await http.MultipartFile.fromPath('file', file.path));
+        ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: picked.name));
       
       final response = await request.send();
       if (response.statusCode == 200) {
         final data = jsonDecode(await response.stream.bytesToString());
         setState(() => _uploadedImageUrls.add(data['url']));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Photo uploaded!')),
+        );
       }
     }
-    setState(() => _attachedImages.clear());
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Photos uploaded!')),
-    );
   }
 
   // ---- SAVE NOTE ----
   Future<void> save() async {
     if (_recordedPath != null) await _uploadAudio();
-    if (_attachedImages.isNotEmpty) await _uploadImages();
     
     final isEdit = widget.note != null;
     final url = isEdit ? '$apiUrl/notes/${widget.note['id']}' : '$apiUrl/notes';
@@ -690,7 +680,7 @@ class _NoteEditorState extends State<NoteEditor> {
           
           const SizedBox(height: 12),
           
-          // Photo Attachments
+          // Photo Attachments (Web-compatible)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -705,31 +695,13 @@ class _NoteEditorState extends State<NoteEditor> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final path in _attachedImages)
-                      Stack(children: [
-                        Image.file(File(path), width: 80, height: 80, fit: BoxFit.cover),
-                        Positioned(
-                          right: 0,
-                          top: 0,
-                          child: GestureDetector(
-                            onTap: () => setState(() => _attachedImages.remove(path)),
-                            child: const CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Icon(Icons.close, size: 14, color: Colors.white)),
-                          ),
-                        ),
-                      ]),
                     for (final url in _uploadedImageUrls)
                       Image.network('$apiUrl$url', width: 80, height: 80, fit: BoxFit.cover),
                     ActionChip(
                       avatar: const Icon(Icons.add_photo_alternate),
-                      label: const Text('Add Photo'),
-                      onPressed: _pickImage,
+                      label: const Text('Add & Upload Photo'),
+                      onPressed: _pickAndUploadImage,
                     ),
-                    if (_attachedImages.isNotEmpty)
-                      ActionChip(
-                        avatar: const Icon(Icons.upload),
-                        label: const Text('Upload All'),
-                        onPressed: _uploadImages,
-                      ),
                   ],
                 ),
               ]),

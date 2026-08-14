@@ -60,7 +60,7 @@ app.post('/register', async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   
   db.query(
-    'INSERT INTO users (username, email, password, department) VALUES (?, ?, ?, ?)',
+    'INSERT INTO users (username, email, password_hash, department) VALUES (?, ?, ?, ?)',
     [username, email, hashedPassword, department],
     (err, result) => {
       if (err) return res.status(400).json({ error: 'Email already exists' });
@@ -76,7 +76,7 @@ app.post('/login', (req, res) => {
     if (err || results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
     
     const user = results[0];
-    const validPassword = await bcrypt.compare(password, user.password);
+    const validPassword = await bcrypt.compare(password, user.password_hash);
     
     if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' });
     
