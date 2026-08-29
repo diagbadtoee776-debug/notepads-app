@@ -1,21 +1,28 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 const String apiUrl = 'http://localhost:5000';
 
 void main() => runApp(const DevVaultApp());
 
-class DevVaultApp extends StatelessWidget {
+class DevVaultApp extends StatefulWidget {
   const DevVaultApp({super.key});
+  @override
+  State<DevVaultApp> createState() => _DevVaultAppState();
+}
+
+class _DevVaultAppState extends State<DevVaultApp> {
+  bool _isDark = true;
+  void _toggleTheme() => setState(() => _isDark = !_isDark);
 
   @override
   Widget build(BuildContext context) {
@@ -23,19 +30,20 @@ class DevVaultApp extends StatelessWidget {
       title: 'DevVault',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
+        brightness: _isDark ? Brightness.dark : Brightness.light,
         colorSchemeSeed: const Color(0xFFF5C542),
         useMaterial3: true,
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
       ),
-      home: const AuthScreen(),
+      home: AuthScreen(onThemeToggle: _toggleTheme, isDark: _isDark),
     );
   }
 }
 
-// ---------------- LOGIN / REGISTER ----------------
+// ===================== LOGIN / REGISTER =====================
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final VoidCallback onThemeToggle;
+  final bool isDark;
+  const AuthScreen({super.key, required this.onThemeToggle, required this.isDark});
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
@@ -43,10 +51,10 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool busy = false;
-  final _username = TextEditingController();
-  final _email = TextEditingController();
-  final _password = TextEditingController();
-  String department = 'CSC';
+  final _u = TextEditingController();
+  final _e = TextEditingController();
+  final _p = TextEditingController();
+  String dept = 'Personal';
 
   Future<void> submit() async {
     setState(() => busy = true);
@@ -55,27 +63,28 @@ class _AuthScreenState extends State<AuthScreen> {
         await http.post(Uri.parse('$apiUrl/register'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
-              'username': _username.text.trim(),
-              'email': _email.text.trim(),
-              'password': _password.text,
-              'department': department,
+              'username': _u.text.trim(),
+              'email': _e.text.trim(),
+              'password': _p.text,
+              'department': dept,
             }));
       }
       final res = await http.post(Uri.parse('$apiUrl/login'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(
-              {'email': _email.text.trim(), 'password': _password.text}));
-      final data = jsonDecode(res.body);
+          body: jsonEncode({'email': _e.text.trim(), 'password': _p.text}));
+      final d = jsonDecode(res.body);
       if (res.statusCode == 200) {
         Navigator.pushReplacement(
             context,
             MaterialPageRoute(
                 builder: (_) => HomeScreen(
-                    token: data['token'],
-                    username: data['user']['username'])));
+                    token: d['token'],
+                    username: d['user']['username'],
+                    onThemeToggle: widget.onThemeToggle,
+                    isDark: widget.isDark)));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Failed')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(d['error'] ?? 'Failed')));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -88,12 +97,19 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(actions: [
+        IconButton(
+            icon: Icon(widget.isDark ? Icons.light_mode : Icons.dark_mode),
+            onPressed: widget.onThemeToggle),
+      ]),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F3460)],
+            colors: widget.isDark
+                ? const [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F3460)]
+                : [Colors.blue.shade50, Colors.indigo.shade50, Colors.purple.shade50],
           ),
         ),
         child: Center(
@@ -107,34 +123,32 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.lock_outline, size: 64, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(height: 16),
-                  Text('DevVault',
-                      style: GoogleFonts.poppins(
-                          fontSize: 36, fontWeight: FontWeight.bold)),
-                  Text('Your offline-first knowledge hub',
-                      style: TextStyle(color: Colors.grey[400])),
+                  const Text('DevVault', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
+                  Text('Your offline-first knowledge hub', style: TextStyle(color: Colors.grey[400])),
                   const SizedBox(height: 32),
                   if (!isLogin) ...[
                     TextField(
-                        controller: _username,
+                        controller: _u,
                         decoration: InputDecoration(
                             labelText: 'Username',
                             prefixIcon: const Icon(Icons.person),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: department,
-                      items: const ['CSC', 'ECE', 'MTH', 'PHY', 'BUS']
+                      value: dept,
+                      items: const ['Personal', 'CSC', 'ECE', 'MTH', 'PHY', 'BUS']
                           .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                           .toList(),
-                      onChanged: (v) => setState(() => department = v!),
+                      onChanged: (v) => setState(() => dept = v!),
                       decoration: InputDecoration(
-                          labelText: 'Department',
+                          labelText: 'Department (optional)',
                           prefixIcon: const Icon(Icons.school),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                    ),
                     const SizedBox(height: 16),
                   ],
                   TextField(
-                      controller: _email,
+                      controller: _e,
                       decoration: InputDecoration(
                           labelText: 'Email',
                           prefixIcon: const Icon(Icons.email),
@@ -142,7 +156,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       keyboardType: TextInputType.emailAddress),
                   const SizedBox(height: 16),
                   TextField(
-                      controller: _password,
+                      controller: _p,
                       decoration: InputDecoration(
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock),
@@ -162,9 +176,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   TextButton(
                     onPressed: () => setState(() => isLogin = !isLogin),
-                    child: Text(isLogin
-                        ? 'New here? Create account'
-                        : 'Have an account? Login'),
+                    child: Text(isLogin ? 'New here? Create account' : 'Have an account? Login'),
                   ),
                 ]),
               ),
@@ -176,53 +188,65 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
-// ---------------- HOME (NOTES LIST) ----------------
+// ===================== HOME SCREEN =====================
 class HomeScreen extends StatefulWidget {
   final String token;
   final String username;
-  const HomeScreen({super.key, required this.token, required this.username});
+  final VoidCallback onThemeToggle;
+  final bool isDark;
+  const HomeScreen({
+    super.key,
+    required this.token,
+    required this.username,
+    required this.onThemeToggle,
+    required this.isDark,
+  });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> notes = [];
-  List<dynamic> filteredNotes = [];
+  List<dynamic> filtered = [];
   bool loading = true;
-  final _searchController = TextEditingController();
+  final _sc = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     loadNotes();
-    _searchController.addListener(_filterNotes);
+    _sc.addListener(_filter);
   }
 
-  void _filterNotes() {
-    final query = _searchController.text.toLowerCase();
+  void _filter() {
+    final q = _sc.text.toLowerCase();
     setState(() {
-      filteredNotes = notes.where((n) {
+      filtered = notes.where((n) {
         final title = (n['title'] ?? '').toString().toLowerCase();
         final body = (n['body'] ?? '').toString().toLowerCase();
-        return title.contains(query) || body.contains(query);
+        return title.contains(q) || body.contains(q);
       }).toList();
     });
   }
 
   Future<void> loadNotes() async {
-    final res = await http.get(Uri.parse('$apiUrl/notes'),
-        headers: {'Authorization': 'Bearer ${widget.token}'});
-    if (res.statusCode == 200) {
-      setState(() {
-        notes = jsonDecode(res.body);
-        notes.sort((a, b) {
-          final aPinned = a['is_pinned'] == 1 ? 1 : 0;
-          final bPinned = b['is_pinned'] == 1 ? 1 : 0;
-          return bPinned.compareTo(aPinned);
+    try {
+      final res = await http.get(Uri.parse('$apiUrl/notes'),
+          headers: {'Authorization': 'Bearer ${widget.token}'});
+      if (res.statusCode == 200) {
+        setState(() {
+          notes = jsonDecode(res.body);
+          notes.sort((a, b) {
+            final ap = a['is_pinned'] == 1 ? 1 : 0;
+            final bp = b['is_pinned'] == 1 ? 1 : 0;
+            return bp.compareTo(ap);
+          });
+          filtered = List.from(notes);
+          loading = false;
         });
-        filteredNotes = List.from(notes);
-        loading = false;
-      });
+      }
+    } catch (_) {
+      setState(() => loading = false);
     }
   }
 
@@ -233,7 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
           'Authorization': 'Bearer ${widget.token}'
         },
         body: jsonEncode({'note_id': id}));
-    final data = jsonDecode(res.body);
+    final d = jsonDecode(res.body);
     showDialog(
         context: context,
         builder: (_) => AlertDialog(
@@ -246,9 +270,8 @@ class _HomeScreenState extends State<HomeScreen> {
               content: Column(mainAxisSize: MainAxisSize.min, children: [
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: Colors.grey[900], borderRadius: BorderRadius.circular(8)),
-                  child: SelectableText('$apiUrl${data['link']}',
+                  decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(8)),
+                  child: SelectableText('$apiUrl${d['link']}',
                       style: const TextStyle(color: Color(0xFFF5C542))),
                 ),
                 const SizedBox(height: 12),
@@ -256,40 +279,76 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(color: Colors.grey)),
               ]),
               actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Done')),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
               ],
             ));
   }
 
-  Future<void> togglePin(dynamic note) async {
-    final isPinned = note['is_pinned'] == 1;
-    await http.put(Uri.parse('$apiUrl/notes/${note['id']}'),
+  Future<void> togglePin(dynamic n) async {
+    await http.put(Uri.parse('$apiUrl/notes/${n['id']}'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.token}'
         },
         body: jsonEncode({
-          'title': note['title'],
-          'body': note['body'],
-          'is_pinned': !isPinned,
-          'folder_id': note['folder_id'],
+          'title': n['title'],
+          'body': n['body'],
+          'is_pinned': n['is_pinned'] != 1,
+          'folder_id': n['folder_id'],
         }));
     loadNotes();
+  }
+
+  Future<void> deleteNote(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Note?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await http.delete(Uri.parse('$apiUrl/notes/$id'),
+          headers: {'Authorization': 'Bearer ${widget.token}'});
+      loadNotes();
+    }
+  }
+
+  void _logout() {
+    Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+            builder: (_) => AuthScreen(
+                onThemeToggle: widget.onThemeToggle, isDark: widget.isDark)));
+  }
+
+  Map<String, bool> _media(String b) {
+    return {
+      'img': b.contains('[IMG:'),
+      'aud': b.contains('[AUDIO:') || b.contains('[MUSIC:'),
+      'vid': b.contains('[VID:') || b.contains('[YT:'),
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('DevVault', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        leading: IconButton(
+            icon: const Icon(Icons.arrow_back), onPressed: _logout, tooltip: 'Logout'),
+        title: const Text('DevVault', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         actions: [
+          IconButton(
+              icon: Icon(widget.isDark ? Icons.light_mode : Icons.dark_mode),
+              onPressed: widget.onThemeToggle),
           CircleAvatar(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            child: Text(widget.username[0].toUpperCase(),
-                style: const TextStyle(color: Colors.black)),
-          ),
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              child: Text(widget.username[0].toUpperCase(),
+                  style: const TextStyle(color: Colors.black))),
           const SizedBox(width: 12),
         ],
       ),
@@ -297,12 +356,12 @@ class _HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.all(16),
           child: TextField(
-            controller: _searchController,
+            controller: _sc,
             decoration: InputDecoration(
               hintText: 'Search notes...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
-              fillColor: Colors.grey[900],
+              fillColor: widget.isDark ? Colors.grey[900] : Colors.grey[200],
               border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
             ),
@@ -311,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: loading
               ? const Center(child: CircularProgressIndicator())
-              : filteredNotes.isEmpty
+              : filtered.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -328,71 +387,119 @@ class _HomeScreenState extends State<HomeScreen> {
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filteredNotes.length,
+                      itemCount: filtered.length,
                       itemBuilder: (_, i) {
-                        final n = filteredNotes[i];
-                        final isPinned = n['is_pinned'] == 1;
-                        final bodyText = (n['body'] ?? '').toString();
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(16),
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                  color: isPinned
-                                      ? const Color(0xFFF5C542).withOpacity(0.2)
-                                      : Colors.grey[800],
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: Icon(
-                                isPinned ? Icons.push_pin : Icons.description,
-                                color: isPinned ? const Color(0xFFF5C542) : Colors.grey,
+                        final n = filtered[i];
+                        final pin = n['is_pinned'] == 1;
+                        final bt = (n['body'] ?? '').toString();
+                        final m = _media(bt);
+                        return Dismissible(
+                          key: Key('note_${n['id']}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            color: Colors.red,
+                            child: const Icon(Icons.delete, color: Colors.white),
+                          ),
+                          confirmDismiss: (_) async {
+                            await deleteNote(n['id']);
+                            return false;
+                          },
+                          child: Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(16),
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                    color: pin
+                                        ? const Color(0xFFF5C542).withOpacity(0.2)
+                                        : (widget.isDark ? Colors.grey[800] : Colors.grey[200]),
+                                    borderRadius: BorderRadius.circular(8)),
+                                child: Icon(
+                                    pin ? Icons.push_pin : Icons.description,
+                                    color: pin ? const Color(0xFFF5C542) : Colors.grey),
                               ),
-                            ),
-                            title: Row(children: [
-                              Expanded(child: Text(n['title'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.w600))),
-                              if (isPinned)
-                                const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
-                            ]),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                bodyText.length > 80
-                                    ? '${bodyText.substring(0, 80)}...'
-                                    : bodyText,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: Colors.grey[400]),
+                              title: Row(children: [
+                                Expanded(
+                                    child: Text(n['title'] ?? '',
+                                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                                if (pin)
+                                  const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
+                              ]),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      bt.length > 80 ? '${bt.substring(0, 80)}...' : bt,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: Colors.grey[400]),
+                                    ),
+                                  ),
+                                  if (m['img']! || m['aud']! || m['vid']!)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Row(children: [
+                                        if (m['img']!)
+                                          const Padding(
+                                              padding: EdgeInsets.only(right: 8),
+                                              child: Icon(Icons.photo, size: 16, color: Color(0xFFF5C542))),
+                                        if (m['aud']!)
+                                          const Padding(
+                                              padding: EdgeInsets.only(right: 8),
+                                              child: Icon(Icons.music_note, size: 16, color: Color(0xFFF5C542))),
+                                        if (m['vid']!)
+                                          const Padding(
+                                              padding: EdgeInsets.only(right: 8),
+                                              child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
+                                      ]),
+                                    ),
+                                ],
                               ),
-                            ),
-                            trailing: PopupMenuButton<String>(
-                              onSelected: (value) {
-                                if (value == 'share') shareNote(n['id']);
-                                if (value == 'pin') togglePin(n);
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (v) {
+                                  if (v == 'share') shareNote(n['id']);
+                                  if (v == 'pin') togglePin(n);
+                                  if (v == 'delete') deleteNote(n['id']);
+                                },
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(
+                                      value: 'share',
+                                      child: Row(children: [
+                                        Icon(Icons.share, size: 20),
+                                        SizedBox(width: 8),
+                                        Text('Share')
+                                      ])),
+                                  PopupMenuItem(
+                                      value: 'pin',
+                                      child: Row(children: [
+                                        Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
+                                        const SizedBox(width: 8),
+                                        Text(pin ? 'Unpin' : 'Pin')
+                                      ])),
+                                  const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(children: [
+                                        Icon(Icons.delete, size: 20, color: Colors.red),
+                                        SizedBox(width: 8),
+                                        Text('Delete', style: TextStyle(color: Colors.red))
+                                      ])),
+                                ],
+                              ),
+                              onTap: () async {
+                                await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => NoteEditor(token: widget.token, note: n)));
+                                loadNotes();
                               },
-                              itemBuilder: (_) => [
-                                const PopupMenuItem(value: 'share', child: Row(children: [
-                                  Icon(Icons.share, size: 20),
-                                  SizedBox(width: 8),
-                                  Text('Share')
-                                ])),
-                                PopupMenuItem(value: 'pin', child: Row(children: [
-                                  Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(isPinned ? 'Unpin' : 'Pin')
-                                ])),
-                              ],
                             ),
-                            onTap: () async {
-                              await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          NoteEditor(token: widget.token, note: n)));
-                              loadNotes();
-                            },
                           ),
                         );
                       },
@@ -412,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ---------------- NOTE EDITOR WITH MEDIA ----------------
+// ===================== NOTE EDITOR WITH TABS =====================
 class NoteEditor extends StatefulWidget {
   final String token;
   final dynamic note;
@@ -424,369 +531,573 @@ class NoteEditor extends StatefulWidget {
 class _NoteEditorState extends State<NoteEditor> {
   final _title = TextEditingController();
   final _body = TextEditingController();
-  bool _isCodeBlock = false;
-  
-  // Media state
-  final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final _ytCtrl = TextEditingController();
+  int _tab = 0;
+  bool _code = false;
+
+  final AudioRecorder _rec = AudioRecorder();
+  final AudioPlayer _ap = AudioPlayer();
   final ImagePicker _picker = ImagePicker();
-  
-  bool _isRecording = false;
-  String? _recordedPath;
-  String? _uploadedAudioUrl;
-  
-  List<String> _uploadedImageUrls = [];
-  
-  String? _youtubeUrl;
-  final _youtubeController = TextEditingController();
+  final SpeechToText _speech = SpeechToText();
+
+  bool _speechReady = false;
+  bool _listening = false;
+  bool _recording = false;
+  String? _audioUrl;
+  String _lastWords = '';
+
+  List<String> _imgs = [];
+  List<String> _vids = [];
+  List<String> _music = [];
+  List<String> _links = [];
+  String? _yt;
+  String _folder = 'General';
 
   @override
   void initState() {
     super.initState();
+    _initSpeech();
     if (widget.note != null) {
       _title.text = widget.note['title'] ?? '';
       _body.text = widget.note['body'] ?? '';
-      _parseMediaFromBody();
+      _folder = widget.note['folder'] ?? 'General';
+      _parse();
     }
+    _body.addListener(() => setState(() {}));
   }
 
-  void _parseMediaFromBody() {
-    final body = _body.text;
-    final imgRegex = RegExp(r'\[IMG:(.*?)\]');
-    final audioRegex = RegExp(r'\[AUDIO:(.*?)\]');
-    final ytRegex = RegExp(r'\[YT:(.*?)\]');
-    
-    _uploadedImageUrls = imgRegex.allMatches(body).map((m) => m.group(1)!).toList();
-    _uploadedAudioUrl = audioRegex.firstMatch(body)?.group(1);
-    _youtubeUrl = ytRegex.firstMatch(body)?.group(1);
-    
-    if (_youtubeUrl != null) {
-      _youtubeController.text = _youtubeUrl!;
-    }
-    
-    _body.text = body
-        .replaceAll(imgRegex, '')
-        .replaceAll(audioRegex, '')
-        .replaceAll(ytRegex, '')
+  @override
+  void dispose() {
+    _ap.dispose();
+    _rec.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initSpeech() async {
+    _speechReady = await _speech.initialize(
+      onError: (_) => setState(() => _listening = false),
+      onStatus: (s) {
+        if (s == 'done' || s == 'notListening') {
+          setState(() => _listening = false);
+        }
+      },
+    );
+  }
+
+  void _parse() {
+    final b = _body.text;
+    _imgs = RegExp(r'\[IMG:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    _audioUrl = RegExp(r'\[AUDIO:(.*?)\]').firstMatch(b)?.group(1);
+    _yt = RegExp(r'\[YT:(.*?)\]').firstMatch(b)?.group(1);
+    _vids = RegExp(r'\[VID:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    _music = RegExp(r'\[MUSIC:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    _links = RegExp(r'\[LINK:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    if (_yt != null) _ytCtrl.text = _yt!;
+    _body.text = b
+        .replaceAll(
+            RegExp(r'\[IMG:.*?\]|\[AUDIO:.*?\]|\[YT:.*?\]|\[VID:.*?\]|\[MUSIC:.*?\]|\[LINK:.*?\]'),
+            '')
         .trim();
   }
 
-  String _buildBodyWithMedia() {
-    String body = _body.text;
-    for (final url in _uploadedImageUrls) {
-      body += '\n[IMG:$url]';
+  String _build() {
+    String b = _body.text;
+    for (final u in _imgs) {
+      b += '\n[IMG:$u]';
     }
-    if (_uploadedAudioUrl != null) {
-      body += '\n[AUDIO:$_uploadedAudioUrl]';
+    for (final u in _vids) {
+      b += '\n[VID:$u]';
     }
-    if (_youtubeUrl != null && _youtubeUrl!.isNotEmpty) {
-      body += '\n[YT:$_youtubeUrl]';
+    for (final u in _music) {
+      b += '\n[MUSIC:$u]';
     }
-    return body;
+    for (final u in _links) {
+      b += '\n[LINK:$u]';
+    }
+    if (_audioUrl != null) b += '\n[AUDIO:$_audioUrl]';
+    if (_yt != null && _yt!.isNotEmpty) b += '\n[YT:$_yt]';
+    return b;
   }
 
-  // ---- VOICE RECORDING ----
-  Future<void> _toggleRecording() async {
-    if (_isRecording) {
-      await _recorder.stop();
-      setState(() => _isRecording = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Recording saved! Tap upload to save to note.')),
+  int get _wc {
+    final t = _body.text.trim();
+    if (t.isEmpty) return 0;
+    return t.split(RegExp(r'\s+')).length;
+  }
+
+  void _toggleSpeech() {
+    if (_listening) {
+      _speech.stop();
+      setState(() => _listening = false);
+    } else if (_speechReady) {
+      setState(() {
+        _listening = true;
+        _lastWords = '';
+      });
+      _speech.listen(
+        onResult: (r) {
+          setState(() {
+            _lastWords = r.recognizedWords;
+            _body.text = '${_body.text} ${r.recognizedWords}';
+          });
+        },
+        listenFor: const Duration(minutes: 2),
+        pauseFor: const Duration(seconds: 3),
       );
     } else {
-      if (await _recorder.hasPermission()) {
-        final dir = await getApplicationDocumentsDirectory();
-        _recordedPath = '${dir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
-        await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: _recordedPath!);
-        setState(() => _isRecording = true);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission denied')),
-        );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Speech not available. Try Chrome or the mobile app.')));
+    }
+  }
+
+  Future<void> _toggleRec() async {
+    if (_recording) {
+      await _rec.stop();
+      setState(() => _recording = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Recording stopped!')));
+    } else {
+      if (await _rec.hasPermission()) {
+        await _rec.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: '');
+        setState(() => _recording = true);
       }
     }
   }
 
-  Future<void> _uploadAudio() async {
-    if (_recordedPath == null) return;
-    final file = File(_recordedPath!);
-    final request = http.MultipartRequest('POST', Uri.parse('$apiUrl/upload'))
+  Future<void> _play(String url) async {
+    await _ap.stop();
+    await _ap.play(UrlSource('$apiUrl$url'));
+  }
+
+  Future<void> _upload(List<int> bytes, String name, {bool audio = false}) async {
+    final req = http.MultipartRequest('POST', Uri.parse('$apiUrl/upload'))
       ..headers['Authorization'] = 'Bearer ${widget.token}'
-      ..files.add(await http.MultipartFile.fromPath('file', file.path));
-    
-    final response = await request.send();
-    if (response.statusCode == 200) {
-      final data = jsonDecode(await response.stream.bytesToString());
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: name));
+    final res = await req.send();
+    if (res.statusCode == 200) {
+      final d = jsonDecode(await res.stream.bytesToString());
       setState(() {
-        _uploadedAudioUrl = data['url'];
-        _recordedPath = null;
+        if (audio) {
+          _music.add(d['url']);
+        } else {
+          _vids.add(d['url']);
+        }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Voice note uploaded!')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${audio ? "Music" : "Video"} uploaded!')));
     }
   }
 
-  Future<void> _playAudio(String url) async {
-    await _audioPlayer.play(UrlSource('$apiUrl$url'));
-  }
-
-  // ---- PHOTO ATTACHMENTS (Web-compatible) ----
-  Future<void> _pickAndUploadImage() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked != null) {
-      final bytes = await picked.readAsBytes();
-      final request = http.MultipartRequest('POST', Uri.parse('$apiUrl/upload'))
+  Future<void> _pickPhoto() async {
+    final p = await _picker.pickImage(source: ImageSource.gallery);
+    if (p != null) {
+      final bytes = await p.readAsBytes();
+      final req = http.MultipartRequest('POST', Uri.parse('$apiUrl/upload'))
         ..headers['Authorization'] = 'Bearer ${widget.token}'
-        ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: picked.name));
-      
-      final response = await request.send();
-      if (response.statusCode == 200) {
-        final data = jsonDecode(await response.stream.bytesToString());
-        setState(() => _uploadedImageUrls.add(data['url']));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo uploaded!')),
-        );
+        ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: p.name));
+      final res = await req.send();
+      if (res.statusCode == 200) {
+        final d = jsonDecode(await res.stream.bytesToString());
+        setState(() => _imgs.add(d['url']));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Photo uploaded!')));
       }
     }
   }
 
-  // ---- SAVE NOTE ----
+  Future<void> _pickVideo() async {
+    final r = await FilePicker.platform.pickFiles(type: FileType.video);
+    if (r != null && r.files.first.bytes != null) {
+      await _upload(r.files.first.bytes!, r.files.first.name);
+    }
+  }
+
+  Future<void> _pickMusic() async {
+    final r = await FilePicker.platform.pickFiles(type: FileType.audio);
+    if (r != null && r.files.first.bytes != null) {
+      await _upload(r.files.first.bytes!, r.files.first.name, audio: true);
+    }
+  }
+
   Future<void> save() async {
-    if (_recordedPath != null) await _uploadAudio();
-    
     final isEdit = widget.note != null;
     final url = isEdit ? '$apiUrl/notes/${widget.note['id']}' : '$apiUrl/notes';
-    final headers = {
+    final h = {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ${widget.token}'
     };
-    final body = jsonEncode({
+    final b = jsonEncode({
       'title': _title.text,
-      'body': _buildBodyWithMedia(),
+      'body': _build(),
       'is_pinned': isEdit ? (widget.note['is_pinned'] == 1) : false,
       'folder_id': null,
     });
     if (isEdit) {
-      await http.put(Uri.parse(url), headers: headers, body: body);
+      await http.put(Uri.parse(url), headers: h, body: b);
     } else {
-      await http.post(Uri.parse(url), headers: headers, body: body);
+      await http.post(Uri.parse(url), headers: h, body: b);
     }
     Navigator.pop(context);
   }
 
+  // ===================== TAB VIEWS =====================
+
+  Widget _tabNote() {
+    return Column(children: [
+      TextField(
+          controller: _title,
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          decoration: const InputDecoration(labelText: 'Title', border: InputBorder.none)),
+      const Divider(height: 1),
+      Row(children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: DropdownButton<String>(
+            value: _folder,
+            items: ['General', 'CSC 301', 'CSC 302', 'MTH 201', 'Personal', 'Exam Prep']
+                .map((f) => DropdownMenuItem(
+                    value: f, child: Text(f, style: const TextStyle(fontSize: 12))))
+                .toList(),
+            onChanged: (v) => setState(() => _folder = v!),
+            underline: const SizedBox(),
+          ),
+        ),
+        const Spacer(),
+        Text('$_wc words', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+        IconButton(
+            icon: Icon(_code ? Icons.code_off : Icons.code, size: 20),
+            onPressed: () => setState(() => _code = !_code)),
+      ]),
+      Expanded(
+        child: _code
+            ? SingleChildScrollView(
+                child: HighlightView(
+                  _body.text.isEmpty ? '// Code here...' : _body.text,
+                  language: 'dart',
+                  theme: atomOneDarkTheme,
+                  padding: const EdgeInsets.all(16),
+                  textStyle: const TextStyle(fontSize: 14),
+                ),
+              )
+            : TextField(
+                controller: _body,
+                maxLines: null,
+                expands: true,
+                style: const TextStyle(fontSize: 16, height: 1.5),
+                decoration: const InputDecoration(
+                    labelText: 'Write anything... ideas, reminders, lecture notes',
+                    border: InputBorder.none),
+              ),
+      ),
+      if (_listening)
+        Container(
+          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            const Icon(Icons.mic, color: Colors.red),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(
+                    _lastWords.isEmpty ? 'Listening...' : _lastWords,
+                    style: const TextStyle(color: Colors.red))),
+            const Text('REC', style: TextStyle(color: Colors.red, fontSize: 12)),
+          ]),
+        ),
+    ]);
+  }
+
+  Widget _tabPhoto() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Photos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          for (int i = 0; i < _imgs.length; i++)
+            Stack(children: [
+              Image.network('$apiUrl${_imgs[i]}', width: 100, height: 100, fit: BoxFit.cover),
+              Positioned(
+                  top: 0,
+                  right: 0,
+                  child: InkWell(
+                      onTap: () => setState(() => _imgs.removeAt(i)),
+                      child: const CircleAvatar(
+                          radius: 12,
+                          backgroundColor: Colors.red,
+                          child: Icon(Icons.close, size: 14, color: Colors.white)))),
+            ]),
+          ActionChip(
+              avatar: const Icon(Icons.add_photo_alternate),
+              label: const Text('Add Photo'),
+              onPressed: _pickPhoto),
+        ],
+      ),
+    ]);
+  }
+
+  Widget _tabMusic() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Music', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        ActionChip(
+            avatar: const Icon(Icons.play_arrow),
+            label: const Text('Lo-fi Beats'),
+            onPressed: () => _ap.play(UrlSource(
+                'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3'))),
+        ActionChip(
+            avatar: const Icon(Icons.pause),
+            label: const Text('Pause'),
+            onPressed: () => _ap.pause()),
+        ActionChip(
+            avatar: const Icon(Icons.stop),
+            label: const Text('Stop'),
+            onPressed: () => _ap.stop()),
+      ]),
+      const SizedBox(height: 16),
+      const Text('Uploaded Music', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final u in _music)
+          ActionChip(
+              avatar: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
+              label: Text(u.split('/').last.length > 12
+                  ? '${u.split('/').last.substring(0, 12)}...'
+                  : u.split('/').last),
+              onPressed: () => _play(u)),
+        ActionChip(
+            avatar: const Icon(Icons.library_music),
+            label: const Text('Upload Music'),
+            onPressed: _pickMusic),
+      ]),
+    ]);
+  }
+
+  Widget _tabVideo() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Videos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      TextField(
+          controller: _ytCtrl,
+          decoration: const InputDecoration(
+              labelText: 'Paste YouTube URL',
+              prefixIcon: Icon(Icons.link),
+              border: OutlineInputBorder()),
+          onChanged: (v) => setState(() => _yt = v)),
+      if (_yt != null && _yt!.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () => launchUrl(Uri.parse(_yt!), mode: LaunchMode.externalApplication),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(8)),
+            child: Row(children: [
+              const Icon(Icons.play_circle_fill, color: Colors.red),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(_yt!,
+                      style: const TextStyle(color: Color(0xFFF5C542)),
+                      overflow: TextOverflow.ellipsis)),
+              const Icon(Icons.open_in_new, size: 16),
+            ]),
+          ),
+        ),
+      ],
+      const SizedBox(height: 16),
+      const Text('Uploaded Videos', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        for (final u in _vids)
+          InkWell(
+            onTap: () => launchUrl(Uri.parse('$apiUrl$u'), mode: LaunchMode.externalApplication),
+            child: Container(
+              width: 100,
+              height: 80,
+              decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
+              child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 30),
+                    Text('Play', style: TextStyle(fontSize: 10)),
+                  ]),
+            ),
+          ),
+        ActionChip(
+            avatar: const Icon(Icons.video_library),
+            label: const Text('Upload Video'),
+            onPressed: _pickVideo),
+      ]),
+    ]);
+  }
+
+  Widget _tabVoice() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Voice', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      const Text('Voice Recording', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      Row(children: [
+        ElevatedButton.icon(
+          onPressed: _toggleRec,
+          icon: Icon(_recording ? Icons.stop : Icons.mic),
+          label: Text(_recording ? 'Stop Recording' : 'Start Recording'),
+          style: ElevatedButton.styleFrom(
+              backgroundColor: _recording ? Colors.red : Theme.of(context).colorScheme.primary,
+              foregroundColor: _recording ? Colors.white : Colors.black),
+        ),
+        if (_audioUrl != null) ...[
+          const SizedBox(width: 12),
+          IconButton(
+              icon: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
+              onPressed: () => _play(_audioUrl!)),
+        ],
+      ]),
+      if (_recording)
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Row(children: [
+            Icon(Icons.fiber_manual_record, color: Colors.red, size: 12),
+            SizedBox(width: 4),
+            Text('Recording...', style: TextStyle(color: Colors.red)),
+          ]),
+        ),
+      const SizedBox(height: 24),
+      const Text('Voice-to-Text (AI)', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      const Text('Tap the mic below, speak, your words appear in the note automatically!',
+          style: TextStyle(color: Colors.grey, fontSize: 13)),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(
+        onPressed: _toggleSpeech,
+        icon: Icon(_listening ? Icons.stop : Icons.graphic_eq),
+        label: Text(_listening ? 'Stop Listening' : 'Speak to Type'),
+        style: ElevatedButton.styleFrom(
+            backgroundColor: _listening ? Colors.red : Colors.green,
+            foregroundColor: Colors.white),
+      ),
+      if (_listening) ...[
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            const Icon(Icons.wifi_tethering, color: Colors.green),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(
+                    _lastWords.isEmpty ? 'Listening... speak now!' : _lastWords,
+                    style: const TextStyle(color: Colors.green))),
+          ]),
+        ),
+      ],
+    ]);
+  }
+
+  Widget _tabLinks() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Links', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      const Text('Saved Links', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      for (final l in _links)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: InkWell(
+            onTap: () => launchUrl(Uri.parse(l), mode: LaunchMode.externalApplication),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [
+                const Icon(Icons.link, color: Color(0xFFF5C542)),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: Text(l,
+                        style: const TextStyle(color: Color(0xFFF5C542)),
+                        overflow: TextOverflow.ellipsis)),
+                const Icon(Icons.open_in_new, size: 16),
+              ]),
+            ),
+          ),
+        ),
+      const SizedBox(height: 16),
+      TextField(
+        decoration: const InputDecoration(
+            labelText: 'Paste a link and press Enter',
+            prefixIcon: Icon(Icons.add_link),
+            border: OutlineInputBorder()),
+        onSubmitted: (v) {
+          if (v.isNotEmpty) setState(() => _links.add(v));
+        },
+      ),
+    ]);
+  }
+
+  // ===================== MAIN BUILD =====================
   @override
   Widget build(BuildContext context) {
+    final tabIcons = [
+      Icons.edit_note,
+      Icons.photo_camera,
+      Icons.music_note,
+      Icons.videocam,
+      Icons.mic,
+      Icons.link,
+    ];
+    final tabLabels = ['Note', 'Photo', 'Music', 'Video', 'Voice', 'Links'];
+    final tabViews = [
+      _tabNote(),
+      _tabPhoto(),
+      _tabMusic(),
+      _tabVideo(),
+      _tabVoice(),
+      _tabLinks(),
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.note == null ? 'New Note' : 'Edit Note',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 20)),
         actions: [
-          IconButton(
-              icon: Icon(_isCodeBlock ? Icons.code_off : Icons.code),
-              onPressed: () => setState(() => _isCodeBlock = !_isCodeBlock),
-              tooltip: 'Toggle code block'),
+          if (_listening)
+            const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: Icon(Icons.mic, color: Colors.red)),
           IconButton(icon: const Icon(Icons.save), onPressed: save),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(
-              controller: _title,
-              style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold),
-              decoration: const InputDecoration(
-                  labelText: 'Title', border: InputBorder.none)),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          
-          SizedBox(
-            height: 200,
-            child: _isCodeBlock
-                ? SingleChildScrollView(
-                    child: HighlightView(
-                      _body.text.isEmpty ? '// Write your code here...' : _body.text,
-                      language: 'dart',
-                      theme: atomOneDarkTheme,
-                      padding: const EdgeInsets.all(16),
-                      textStyle: GoogleFonts.firaCode(fontSize: 14),
-                    ),
-                  )
-                : TextField(
-                    controller: _body,
-                    maxLines: null,
-                    expands: true,
-                    style: const TextStyle(fontSize: 16, height: 1.5),
-                    decoration: const InputDecoration(
-                        labelText: 'Write anything... ideas, reminders, lecture notes',
-                        border: InputBorder.none),
-                  ),
-          ),
-          
-          const SizedBox(height: 24),
-          const Text('Media Attachments', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          
-          // Voice Recording
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Row(children: [
-                  Icon(Icons.mic, color: Color(0xFFF5C542)),
-                  SizedBox(width: 8),
-                  Text('Voice Recording', style: TextStyle(fontWeight: FontWeight.w600)),
-                ]),
-                const SizedBox(height: 12),
-                Row(children: [
-                  ElevatedButton.icon(
-                    onPressed: _toggleRecording,
-                    icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-                    label: Text(_isRecording ? 'Stop Recording' : 'Start Recording'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isRecording ? Colors.red : Theme.of(context).colorScheme.primary,
-                      foregroundColor: _isRecording ? Colors.white : Colors.black,
-                    ),
-                  ),
-                  if (_recordedPath != null) ...[
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      onPressed: _uploadAudio,
-                      icon: const Icon(Icons.upload),
-                      label: const Text('Upload'),
-                    ),
-                  ],
-                  if (_uploadedAudioUrl != null) ...[
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
-                      onPressed: () => _playAudio(_uploadedAudioUrl!),
-                      tooltip: 'Play recording',
-                    ),
-                  ],
-                ]),
-                if (_isRecording)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Row(children: [
-                      Icon(Icons.fiber_manual_record, color: Colors.red, size: 12),
-                      SizedBox(width: 4),
-                      Text('Recording...', style: TextStyle(color: Colors.red)),
-                    ]),
-                  ),
-              ]),
-            ),
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Photo Attachments (Web-compatible)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Row(children: [
-                  Icon(Icons.photo_camera, color: Color(0xFFF5C542)),
-                  SizedBox(width: 8),
-                  Text('Photos', style: TextStyle(fontWeight: FontWeight.w600)),
-                ]),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final url in _uploadedImageUrls)
-                      Image.network('$apiUrl$url', width: 80, height: 80, fit: BoxFit.cover),
-                    ActionChip(
-                      avatar: const Icon(Icons.add_photo_alternate),
-                      label: const Text('Add & Upload Photo'),
-                      onPressed: _pickAndUploadImage,
-                    ),
-                  ],
+      body: Column(children: [
+        Container(
+          height: 60,
+          decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: Colors.grey[800]!))),
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: tabIcons.length,
+            itemBuilder: (_, i) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  selected: _tab == i,
+                  onSelected: (_) => setState(() => _tab = i),
+                  avatar: Icon(tabIcons[i], size: 18),
+                  label: Text(tabLabels[i]),
+                  selectedColor: const Color(0xFFF5C542),
+                  labelStyle: TextStyle(
+                      color: _tab == i ? Colors.black : Colors.grey,
+                      fontWeight: _tab == i ? FontWeight.bold : FontWeight.normal),
                 ),
-              ]),
-            ),
+              );
+            },
           ),
-          
-          const SizedBox(height: 12),
-          
-          // YouTube Embed
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Row(children: [
-                  Icon(Icons.play_circle_outline, color: Color(0xFFF5C542)),
-                  SizedBox(width: 8),
-                  Text('YouTube Video', style: TextStyle(fontWeight: FontWeight.w600)),
-                ]),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _youtubeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Paste YouTube URL',
-                    prefixIcon: Icon(Icons.link),
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (val) => setState(() => _youtubeUrl = val),
-                ),
-                if (_youtubeUrl != null && _youtubeUrl!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  InkWell(
-                    onTap: () => launchUrl(Uri.parse(_youtubeUrl!), mode: LaunchMode.externalApplication),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(8)),
-                      child: Row(children: [
-                        const Icon(Icons.play_circle_fill, color: Colors.red),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(_youtubeUrl!, style: const TextStyle(color: Color(0xFFF5C542)), overflow: TextOverflow.ellipsis)),
-                        const Icon(Icons.open_in_new, size: 16),
-                      ]),
-                    ),
-                  ),
-                ],
-              ]),
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Music Player
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Row(children: [
-                  Icon(Icons.music_note, color: Color(0xFFF5C542)),
-                  SizedBox(width: 8),
-                  Text('Study Music', style: TextStyle(fontWeight: FontWeight.w600)),
-                ]),
-                const SizedBox(height: 12),
-                Row(children: [
-                  ElevatedButton.icon(
-                    onPressed: () => _audioPlayer.play(UrlSource('https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3')),
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Play Lo-fi Beats'),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: () => _audioPlayer.pause(),
-                    icon: const Icon(Icons.pause),
-                    label: const Text('Pause'),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: () => _audioPlayer.stop(),
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Stop'),
-                  ),
-                ]),
-              ]),
-            ),
-          ),
-        ]),
-      ),
+        ),
+        Expanded(
+          child: Padding(padding: const EdgeInsets.all(16), child: tabViews[_tab]),
+        ),
+      ]),
     );
   }
 }
