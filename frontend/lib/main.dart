@@ -81,6 +81,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 builder: (_) => HomeScreen(
                     token: d['token'],
                     username: d['user']['username'],
+                    department: d['user']['department'] ?? 'Personal',
                     onThemeToggle: widget.onThemeToggle,
                     isDark: widget.isDark)));
       } else {
@@ -194,12 +195,14 @@ class _AuthScreenState extends State<AuthScreen> {
 class HomeScreen extends StatefulWidget {
   final String token;
   final String username;
+  final String department;
   final VoidCallback onThemeToggle;
   final bool isDark;
   const HomeScreen({
     super.key,
     required this.token,
     required this.username,
+    required this.department,
     required this.onThemeToggle,
     required this.isDark,
   });
@@ -210,7 +213,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> notes = [];
   List<dynamic> filtered = [];
+  List<dynamic> _hall = [];
+  List<String> _halls = ['General'];
+  String _currentHall = 'General';
   bool loading = true;
+  bool _hallLoading = true;
   int _tab = 0;
   final _sc = TextEditingController();
   final AudioPlayer _ap = AudioPlayer();
@@ -232,6 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _checkReminders();
     });
     loadNotes();
+    _loadHalls();
     _sc.addListener(_filter);
   }
 
@@ -262,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   int get _pinnedCount => notes.where((n) => n['is_pinned'] == 1).length;
+  int get _sharedCount => notes.where((n) => n['shared'] == 1).length;
 
   int get _totalWords {
     int w = 0;
@@ -273,14 +282,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String get _fabLabel =>
-      ['New Note', 'Add Photo', 'Add Music', 'Add Video', 'Add Link'][_tab];
+      ['New Note', 'Add Photo', 'Add Music', 'Add Video', 'Add Link', 'New Note'][_tab];
 
   IconData get _fabIcon => [
         Icons.add,
         Icons.add_photo_alternate,
         Icons.library_music,
         Icons.video_library,
-        Icons.add_link
+        Icons.add_link,
+        Icons.add
       ][_tab];
 
   String _cleanName(String url) {
@@ -347,7 +357,10 @@ class _HomeScreenState extends State<HomeScreen> {
       filtered = notes.where((n) {
         final title = (n['title'] ?? '').toString().toLowerCase();
         final body = (n['body'] ?? '').toString().toLowerCase();
-        final tags = RegExp(r'\[TAG:(.*?)\]').allMatches(body).map((m) => m.group(1)!.toLowerCase()).join(' ');
+        final tags = RegExp(r'\[TAG:(.*?)\]')
+            .allMatches(body)
+            .map((m) => m.group(1)!.toLowerCase())
+            .join(' ');
         return title.contains(q) || body.contains(q) || tags.contains(q);
       }).toList();
     });
@@ -403,6 +416,165 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       setState(() => loading = false);
     }
+  }
+
+  Future<void> _loadHalls() async {
+    try {
+      final res = await http.get(Uri.parse('$apiUrl/halls'),
+          headers: {'Authorization': 'Bearer ${widget.token}'});
+      if (res.statusCode == 200) {
+        setState(() {
+          _halls = List<String>.from(jsonDecode(res.body));
+          if (_halls.contains(widget.department)) _currentHall = widget.department;
+        });
+        _loadHall();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadHall() async {
+    setState(() => _hallLoading = true);
+    try {
+      final res = await http.get(
+          Uri.parse('$apiUrl/hall?name=${Uri.encodeComponent(_currentHall)}'),
+          headers: {'Authorization': 'Bearer ${widget.token}'});
+      if (res.statusCode == 200) {
+        setState(() {
+          _hall = jsonDecode(res.body);
+          _hallLoading = false;
+        });
+      } else {
+        setState(() => _hallLoading = false);
+      }
+    } catch (_) {
+      setState(() => _hallLoading = false);
+    }
+  }
+
+  Future<void> _createHall() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Create New Hall 🏛️'),
+        content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+                hintText: 'Hall name e.g. CSC 301 Class, Greenfield High SS3')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+              child: const Text('Create')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    final res = await http.post(Uri.parse('$apiUrl/halls'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}'
+        },
+        body: jsonEncode({'name': name}));
+    if (res.statusCode == 200) {
+      setState(() {
+        _halls = List<String>.from(jsonDecode(res.body));
+        _currentHall = name;
+      });
+      _loadHall();
+    }
+  }
+
+  Future<void> _copyHall(dynamic h) async {
+    final res = await http.post(Uri.parse('$apiUrl/copy/${h['id']}'),
+        headers: {'Authorization': 'Bearer ${widget.token}'});
+    if (res.statusCode == 200) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved to your Shared folder! 📁')));
+      loadNotes();
+    }
+  }
+
+  Future<void> _forwardNote(dynamic h) async {
+    String target = _halls.first;
+    await showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Forward to Hall ↪️'),
+          content: DropdownButtonFormField<String>(
+            value: target,
+            items: _halls
+                .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+                .toList(),
+            onChanged: (v) => setS(() => target = v!),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final res = await http.post(Uri.parse('$apiUrl/forward/${h['id']}'),
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ${widget.token}'
+                      },
+                      body: jsonEncode({'hall': target}));
+                  if (res.statusCode == 200) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Forwarded to $target! ↪️')));
+                    _loadHall();
+                  }
+                },
+                child: const Text('Forward')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _viewHallNote(dynamic h) {
+    final bt = (h['body'] ?? '').toString();
+    final clean = bt.replaceAll(RegExp(r'\[\w+:.*?\]'), '').trim();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(h['title'] ?? 'Untitled', style: const TextStyle(fontSize: 18)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('by ${h['owner'] ?? 'Unknown'} • ${h['hall'] ?? ''}',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                  const SizedBox(height: 12),
+                  Text(clean.isEmpty ? '📎 Media note' : clean,
+                      style: const TextStyle(fontSize: 14, height: 1.5)),
+                ]),
+          ),
+        ),
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.forward, color: Color(0xFFF5C542)),
+              tooltip: 'Forward to another hall',
+              onPressed: () {
+                Navigator.pop(context);
+                _forwardNote(h);
+              }),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          FilledButton.icon(
+              onPressed: () => _copyHall(h),
+              icon: const Icon(Icons.download, size: 18),
+              label: const Text('Save to My Notes')),
+        ],
+      ),
+    );
   }
 
   Future<void> _play(String url) async {
@@ -476,8 +648,30 @@ class _HomeScreenState extends State<HomeScreen> {
           'body': n['body'],
           'is_pinned': n['is_pinned'] != 1,
           'folder_id': n['folder_id'],
+          'shared': n['shared'] == 1,
+          'folder': n['folder'],
+          'hall': n['hall'],
         }));
     loadNotes();
+  }
+
+  Future<void> toggleShare(dynamic n) async {
+    await http.put(Uri.parse('$apiUrl/notes/${n['id']}'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}'
+        },
+        body: jsonEncode({
+          'title': n['title'],
+          'body': n['body'],
+          'is_pinned': n['is_pinned'] == 1,
+          'folder_id': n['folder_id'],
+          'shared': n['shared'] != 1,
+          'folder': n['folder'],
+          'hall': n['hall'],
+        }));
+    loadNotes();
+    _loadHall();
   }
 
   Future<void> deleteNote(int id) async {
@@ -544,6 +738,8 @@ class _HomeScreenState extends State<HomeScreen> {
     ]));
   }
 
+  // ---------- TAB CONTENT ----------
+
   Widget _notesTab() {
     if (filtered.isEmpty) {
       return _emptyMsg('No notes yet', 'Tap + New Note to create your first note');
@@ -554,14 +750,15 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (_, i) {
         final n = filtered[i];
         final pin = n['is_pinned'] == 1;
+        final shared = n['shared'] == 1;
         final bt = (n['body'] ?? '').toString();
         final m = _media(bt);
         final rem = RegExp(r'\[REM:(\d+)\]').firstMatch(bt)?.group(1);
         final colorHex = RegExp(r'\[COLOR:(.*?)\]').firstMatch(bt)?.group(1);
         final tags = RegExp(r'\[TAG:(.*?)\]').allMatches(bt).map((x) => x.group(1)!).toList();
-        
-        final borderColor = colorHex != null && colorHex.isNotEmpty 
-            ? Color(int.parse('0x$colorHex')) 
+
+        final borderColor = colorHex != null && colorHex.isNotEmpty
+            ? Color(int.parse('0x$colorHex'))
             : Colors.transparent;
 
         return Padding(
@@ -603,6 +800,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                         child: Text(n['title'] ?? '',
                             style: const TextStyle(fontWeight: FontWeight.w600))),
+                    if (shared)
+                      const Padding(
+                          padding: EdgeInsets.only(right: 6),
+                          child: Icon(Icons.school, size: 16, color: Color(0xFFF5C542))),
                     if (pin) const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
                   ]),
                   subtitle: Column(
@@ -623,13 +824,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Wrap(
                             spacing: 6,
                             runSpacing: 4,
-                            children: tags.map((tag) => Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                  color: const Color(0xFFF5C542).withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: Text('#$tag', style: const TextStyle(fontSize: 11, color: Color(0xFFF5C542))),
-                            )).toList(),
+                            children: tags
+                                .map((tag) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                          color: const Color(0xFFF5C542).withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(8)),
+                                      child: Text('#$tag',
+                                          style: const TextStyle(fontSize: 11, color: Color(0xFFF5C542))),
+                                    ))
+                                .toList(),
                           ),
                         ),
                       if (m['img']! || m['aud']! || m['vid']! || rem != null)
@@ -669,6 +873,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onSelected: (v) {
                       if (v == 'share') shareNote(n['id']);
                       if (v == 'pin') togglePin(n);
+                      if (v == 'hall') toggleShare(n);
                       if (v == 'delete') deleteNote(n['id']);
                     },
                     itemBuilder: (_) => [
@@ -685,6 +890,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
                             const SizedBox(width: 8),
                             Text(pin ? 'Unpin' : 'Pin')
+                          ])),
+                      PopupMenuItem(
+                          value: 'hall',
+                          child: Row(children: [
+                            const Icon(Icons.school, size: 20, color: Color(0xFFF5C542)),
+                            const SizedBox(width: 8),
+                            Text(shared ? 'Remove from Hall' : 'Share to Hall')
                           ])),
                       const PopupMenuItem(
                           value: 'delete',
@@ -707,6 +919,61 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _hallTab() {
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _halls.contains(_currentHall) ? _currentHall : _halls.first,
+              items: _halls
+                  .map((h) => DropdownMenuItem(value: h, child: Text(h)))
+                  .toList(),
+              onChanged: (v) {
+                setState(() => _currentHall = v!);
+                _loadHall();
+              },
+              decoration: InputDecoration(
+                  labelText: 'Browse a Hall',
+                  prefixIcon: const Icon(Icons.school),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+              onPressed: _createHall,
+              icon: const Icon(Icons.add),
+              label: const Text('New Hall')),
+        ]),
+      ),
+      Expanded(
+        child: _hallLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _hall.isEmpty
+                ? _emptyMsg('$_currentHall Hall is empty',
+                    'Share a note here or create your own hall!')
+                : ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+                    for (final h in _hall)
+                      Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                              backgroundColor: const Color(0xFFF5C542),
+                              child: Text((h['owner'] ?? '?').toString()[0].toUpperCase(),
+                                  style: const TextStyle(color: Colors.black))),
+                          title: Text(h['title'] ?? 'Untitled',
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('by ${h['owner']} • ${h['department']}',
+                              style: const TextStyle(fontSize: 11)),
+                          trailing: const Icon(Icons.school, color: Color(0xFFF5C542), size: 18),
+                          onTap: () => _viewHallNote(h),
+                        ),
+                      ),
+                  ]),
+      ),
+    ]);
   }
 
   Widget _photosTab() {
@@ -816,15 +1083,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = ['Notes', 'Photos', 'Music', 'Videos', 'Links'];
+    final tabs = ['Notes', 'Photos', 'Music', 'Videos', 'Links', 'Hall'];
     final icons = [
       Icons.sticky_note_2,
       Icons.photo,
       Icons.music_note,
       Icons.videocam,
-      Icons.link
+      Icons.link,
+      Icons.school
     ];
-    final views = [_notesTab(), _photosTab(), _musicTab(), _videosTab(), _linksTab()];
+    final views = [
+      _notesTab(),
+      _photosTab(),
+      _musicTab(),
+      _videosTab(),
+      _linksTab(),
+      _hallTab()
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -858,12 +1133,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(children: [
-            _statCard(Icons.sticky_note_2, '${notes.length}', 'Notes'),
-            const SizedBox(width: 8),
-            _statCard(Icons.push_pin, '$_pinnedCount', 'Pinned'),
-            const SizedBox(width: 8),
-            _statCard(Icons.text_fields, '$_totalWords', 'Words'),
+          child: Column(children: [
+            Row(children: [
+              _statCard(Icons.sticky_note_2, '${notes.length}', 'Notes'),
+              const SizedBox(width: 8),
+              _statCard(Icons.push_pin, '$_pinnedCount', 'Pinned'),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              _statCard(Icons.school, '$_sharedCount', 'Shared'),
+              const SizedBox(width: 8),
+              _statCard(Icons.text_fields, '$_totalWords', 'Words'),
+            ]),
           ]),
         ),
         Padding(
@@ -909,7 +1190,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final editorTabs = [0, 1, 2, 3, 5];
+          final editorTabs = [0, 1, 2, 3, 5, 0];
           await Navigator.push(
               context,
               MaterialPageRoute(
@@ -941,6 +1222,7 @@ class _NoteEditorState extends State<NoteEditor> {
   final _tagCtrl = TextEditingController();
   int _tab = 0;
   bool _code = false;
+  bool _shared = false;
 
   final AudioRecorder _rec = AudioRecorder();
   final AudioPlayer _ap = AudioPlayer();
@@ -955,6 +1237,8 @@ class _NoteEditorState extends State<NoteEditor> {
   DateTime? _remind;
   String _color = '';
   List<String> _tags = [];
+  List<String> _halls = ['General'];
+  String _hall = 'General';
 
   List<String> _imgs = [];
   List<String> _vids = [];
@@ -964,13 +1248,13 @@ class _NoteEditorState extends State<NoteEditor> {
   String _folder = 'General';
 
   static const _noteColors = [
-    '', 
-    'FFD32F2F', // Red
-    'FFF57C00', // Orange
-    'FFFBC02D', // Yellow
-    'FF388E3C', // Green
-    'FF1976D2', // Blue
-    'FF7B1FA2'  // Purple
+    '',
+    'FFD32F2F',
+    'FFF57C00',
+    'FFFBC02D',
+    'FF388E3C',
+    'FF1976D2',
+    'FF7B1FA2'
   ];
 
   @override
@@ -982,8 +1266,11 @@ class _NoteEditorState extends State<NoteEditor> {
       _title.text = widget.note['title'] ?? '';
       _body.text = widget.note['body'] ?? '';
       _folder = widget.note['folder'] ?? 'General';
+      _shared = widget.note['shared'] == 1;
+      _hall = widget.note['hall'] ?? 'General';
       _parse();
     }
+    _loadHalls();
     _body.addListener(() => setState(() {}));
   }
 
@@ -992,6 +1279,19 @@ class _NoteEditorState extends State<NoteEditor> {
     _ap.dispose();
     _rec.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadHalls() async {
+    try {
+      final res = await http.get(Uri.parse('$apiUrl/halls'),
+          headers: {'Authorization': 'Bearer ${widget.token}'});
+      if (res.statusCode == 200) {
+        setState(() {
+          _halls = List<String>.from(jsonDecode(res.body));
+          if (!_halls.contains(_hall)) _hall = _halls.first;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _initSpeech() async {
@@ -1014,7 +1314,7 @@ class _NoteEditorState extends State<NoteEditor> {
 
   String _fmtRemind(int ms) {
     final d = DateTime.fromMillisecondsSinceEpoch(ms);
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}, ${months[d.month - 1]} ${d.day}';
   }
 
@@ -1044,14 +1344,14 @@ class _NoteEditorState extends State<NoteEditor> {
     _music = RegExp(r'\[MUSIC:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _links = RegExp(r'\[LINK:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _tags = RegExp(r'\[TAG:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
-    
+
     final remMs = RegExp(r'\[REM:(\d+)\]').firstMatch(b)?.group(1);
     if (remMs != null) {
       _remind = DateTime.fromMillisecondsSinceEpoch(int.parse(remMs));
     }
-    
+
     _color = RegExp(r'\[COLOR:(.*?)\]').firstMatch(b)?.group(1) ?? '';
-    
+
     if (_yt != null) _ytCtrl.text = _yt!;
     _body.text = b
         .replaceAll(
@@ -1197,6 +1497,9 @@ class _NoteEditorState extends State<NoteEditor> {
       'body': _build(),
       'is_pinned': isEdit ? (widget.note['is_pinned'] == 1) : false,
       'folder_id': null,
+      'shared': _shared,
+      'folder': _folder,
+      'hall': _hall,
     });
     if (isEdit) {
       await http.put(Uri.parse(url), headers: h, body: b);
@@ -1223,75 +1526,101 @@ class _NoteEditorState extends State<NoteEditor> {
           decoration: const InputDecoration(labelText: 'Title', border: InputBorder.none)),
       const Divider(height: 1),
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(children: [
           const Text('Color:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           const SizedBox(width: 8),
           for (final c in _noteColors) ...[
             InkWell(
-              onTap: () => setState(() => _color = c),
-              child: Container(
-                width: 24, height: 24,
-                decoration: BoxDecoration(
-                  color: c.isEmpty ? Colors.grey[400] : Color(int.parse('0x$c')),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _color == c ? Colors.white : Colors.transparent, width: 3),
-                  boxShadow: _color == c ? [BoxShadow(color: Colors.white.withOpacity(0.5), blurRadius: 4)] : null
-                ),
-                child: c.isEmpty ? const Icon(Icons.format_color_reset, size: 14, color: Colors.white) : null,
-              )
-            ),
+                onTap: () => setState(() => _color = c),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                      color: c.isEmpty ? Colors.grey[400] : Color(int.parse('0x$c')),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: _color == c ? Colors.white : Colors.transparent, width: 3)),
+                  child: c.isEmpty
+                      ? const Icon(Icons.format_color_reset, size: 14, color: Colors.white)
+                      : null,
+                )),
             const SizedBox(width: 6)
           ]
         ]),
       ),
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(children: [
-          Expanded(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final t in _tags)
-                  Chip(
-                    label: Text('#$t', style: const TextStyle(fontSize: 11)),
-                    deleteIcon: const Icon(Icons.close, size: 14),
-                    onDeleted: () => setState(() => _tags.remove(t)),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                SizedBox(
-                  width: 100,
-                  child: TextField(
-                    controller: _tagCtrl,
-                    decoration: const InputDecoration(
-                      hintText: '+ Tag',
-                      isDense: true,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(vertical: 8)
-                    ),
-                    onSubmitted: (v) {
-                      if (v.isNotEmpty && !_tags.contains(v)) {
-                        setState(() {
-                          _tags.add(v.trim().toLowerCase());
-                          _tagCtrl.clear();
-                        });
-                      }
-                    },
-                  ),
-                )
-              ],
-            ),
-          )
+          const Icon(Icons.school, size: 18, color: Color(0xFFF5C542)),
+          const SizedBox(width: 8),
+          const Expanded(
+              child: Text('Share to Hall', style: TextStyle(fontSize: 13))),
+          Switch(
+              value: _shared,
+              activeColor: const Color(0xFFF5C542),
+              onChanged: (v) => setState(() => _shared = v)),
         ]),
+      ),
+      if (_shared)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(children: [
+            const Text('Post to: ', style: TextStyle(fontSize: 12)),
+            DropdownButton<String>(
+              value: _halls.contains(_hall) ? _hall : _halls.first,
+              items: _halls
+                  .map((h) => DropdownMenuItem(
+                      value: h, child: Text(h, style: const TextStyle(fontSize: 12))))
+                  .toList(),
+              onChanged: (v) => setState(() => _hall = v!),
+              underline: const SizedBox(),
+              isDense: true,
+            ),
+          ]),
+        ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final t in _tags)
+              Chip(
+                label: Text('#$t', style: const TextStyle(fontSize: 11)),
+                deleteIcon: const Icon(Icons.close, size: 14),
+                onDeleted: () => setState(() => _tags.remove(t)),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            SizedBox(
+              width: 100,
+              child: TextField(
+                controller: _tagCtrl,
+                decoration: const InputDecoration(
+                    hintText: '+ Tag',
+                    isDense: true,
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8)),
+                onSubmitted: (v) {
+                  if (v.isNotEmpty && !_tags.contains(v)) {
+                    setState(() {
+                      _tags.add(v.trim().toLowerCase());
+                      _tagCtrl.clear();
+                    });
+                  }
+                },
+              ),
+            )
+          ],
+        ),
       ),
       Row(children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: DropdownButton<String>(
             value: _folder,
-            items: ['General', 'CSC 301', 'CSC 302', 'MTH 201', 'Personal', 'Exam Prep']
+            items: ['General', 'Shared', 'CSC 301', 'CSC 302', 'MTH 201', 'Personal', 'Exam Prep']
                 .map((f) => DropdownMenuItem(
                     value: f, child: Text(f, style: const TextStyle(fontSize: 12))))
                 .toList(),
