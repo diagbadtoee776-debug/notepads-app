@@ -88,7 +88,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Cannot reach server. Is npm run dev running?')));
+          content: Text('Cannot reach server. Is the backend running?')));
     } finally {
       setState(() => busy = false);
     }
@@ -188,7 +188,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
-// ===================== HOME SCREEN =====================
+// ===================== DASHBOARD HOME =====================
 class HomeScreen extends StatefulWidget {
   final String token;
   final String username;
@@ -209,13 +209,51 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> notes = [];
   List<dynamic> filtered = [];
   bool loading = true;
+  int _tab = 0;
   final _sc = TextEditingController();
+  final AudioPlayer _ap = AudioPlayer();
+
+  List<Map<String, String>> _photos = [];
+  List<Map<String, String>> _music = [];
+  List<Map<String, String>> _videos = [];
+  List<Map<String, String>> _links = [];
 
   @override
   void initState() {
     super.initState();
     loadNotes();
     _sc.addListener(_filter);
+  }
+
+  @override
+  void dispose() {
+    _ap.dispose();
+    super.dispose();
+  }
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  String get _todayString {
+    final d = DateTime.now();
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${days[d.weekday - 1]}, ${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  int get _pinnedCount => notes.where((n) => n['is_pinned'] == 1).length;
+
+  int get _totalWords {
+    int w = 0;
+    for (final n in notes) {
+      final t = (n['body'] ?? '').toString().trim();
+      if (t.isNotEmpty) w += t.split(RegExp(r'\s+')).length;
+    }
+    return w;
   }
 
   void _filter() {
@@ -227,6 +265,35 @@ class _HomeScreenState extends State<HomeScreen> {
         return title.contains(q) || body.contains(q);
       }).toList();
     });
+  }
+
+  void _extractMedia() {
+    _photos = [];
+    _music = [];
+    _videos = [];
+    _links = [];
+    for (final n in notes) {
+      final b = (n['body'] ?? '').toString();
+      final t = (n['title'] ?? 'Note').toString();
+      for (final m in RegExp(r'\[IMG:(.*?)\]').allMatches(b)) {
+        _photos.add({'url': m.group(1)!, 'note': t});
+      }
+      for (final m in RegExp(r'\[MUSIC:(.*?)\]').allMatches(b)) {
+        _music.add({'url': m.group(1)!, 'note': t});
+      }
+      for (final m in RegExp(r'\[AUDIO:(.*?)\]').allMatches(b)) {
+        _music.add({'url': m.group(1)!, 'note': t});
+      }
+      for (final m in RegExp(r'\[VID:(.*?)\]').allMatches(b)) {
+        _videos.add({'url': m.group(1)!, 'note': t});
+      }
+      for (final m in RegExp(r'\[YT:(.*?)\]').allMatches(b)) {
+        _videos.add({'url': m.group(1)!, 'note': t});
+      }
+      for (final m in RegExp(r'\[LINK:(.*?)\]').allMatches(b)) {
+        _links.add({'url': m.group(1)!, 'note': t});
+      }
+    }
   }
 
   Future<void> loadNotes() async {
@@ -242,12 +309,39 @@ class _HomeScreenState extends State<HomeScreen> {
             return bp.compareTo(ap);
           });
           filtered = List.from(notes);
+          _extractMedia();
           loading = false;
         });
       }
     } catch (_) {
       setState(() => loading = false);
     }
+  }
+
+  Future<void> _play(String url) async {
+    await _ap.stop();
+    await _ap.play(UrlSource(url.startsWith('http') ? url : '$apiUrl$url'));
+  }
+
+  void _viewPhoto(String url) {
+    final full = url.startsWith('http') ? url : '$apiUrl$url';
+    showDialog(
+        context: context,
+        builder: (_) => Dialog(
+              backgroundColor: Colors.black,
+              child: Stack(children: [
+                Center(
+                    child: Image.network(full, fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.broken_image, color: Colors.grey, size: 64))),
+                Positioned(
+                    top: 8,
+                    right: 8,
+                    child: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(context))),
+              ]),
+            ));
   }
 
   Future<void> shareNote(int id) async {
@@ -334,12 +428,280 @@ class _HomeScreenState extends State<HomeScreen> {
     };
   }
 
+  Widget _statCard(IconData ic, String value, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: widget.isDark ? Colors.grey[900] : Colors.grey[200],
+            borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Icon(ic, color: const Color(0xFFF5C542), size: 22),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _emptyMsg(String t, String s) {
+    return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.inbox_outlined, size: 56, color: Colors.grey[600]),
+      const SizedBox(height: 12),
+      Text(t, style: TextStyle(color: Colors.grey[400], fontSize: 16)),
+      Text(s, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+    ]));
+  }
+
+  // ---------- TAB CONTENT ----------
+
+  Widget _notesTab() {
+    if (filtered.isEmpty) {
+      return _emptyMsg('No notes yet', 'Tap + New Note to create your first note');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: filtered.length,
+      itemBuilder: (_, i) {
+        final n = filtered[i];
+        final pin = n['is_pinned'] == 1;
+        final bt = (n['body'] ?? '').toString();
+        final m = _media(bt);
+        return Dismissible(
+          key: Key('note_${n['id']}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            color: Colors.red,
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          confirmDismiss: (_) async {
+            await deleteNote(n['id']);
+            return false;
+          },
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(16),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: pin
+                        ? const Color(0xFFF5C542).withOpacity(0.2)
+                        : (widget.isDark ? Colors.grey[800] : Colors.grey[200]),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Icon(pin ? Icons.push_pin : Icons.description,
+                    color: pin ? const Color(0xFFF5C542) : Colors.grey),
+              ),
+              title: Row(children: [
+                Expanded(
+                    child: Text(n['title'] ?? '',
+                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                if (pin) const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
+              ]),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      bt.length > 80 ? '${bt.substring(0, 80)}...' : bt,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.grey[400]),
+                    ),
+                  ),
+                  if (m['img']! || m['aud']! || m['vid']!)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(children: [
+                        if (m['img']!)
+                          const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(Icons.photo, size: 16, color: Color(0xFFF5C542))),
+                        if (m['aud']!)
+                          const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(Icons.music_note, size: 16, color: Color(0xFFF5C542))),
+                        if (m['vid']!)
+                          const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
+                      ]),
+                    ),
+                ],
+              ),
+              trailing: PopupMenuButton<String>(
+                onSelected: (v) {
+                  if (v == 'share') shareNote(n['id']);
+                  if (v == 'pin') togglePin(n);
+                  if (v == 'delete') deleteNote(n['id']);
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'share',
+                      child: Row(children: [
+                        Icon(Icons.share, size: 20),
+                        SizedBox(width: 8),
+                        Text('Share')
+                      ])),
+                  PopupMenuItem(
+                      value: 'pin',
+                      child: Row(children: [
+                        Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        Text(pin ? 'Unpin' : 'Pin')
+                      ])),
+                  const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete, size: 20, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red))
+                      ])),
+                ],
+              ),
+              onTap: () async {
+                await Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token, note: n)));
+                loadNotes();
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _photosTab() {
+    if (_photos.isEmpty) return _emptyMsg('No photos yet', 'Add photos from any note');
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
+      itemCount: _photos.length,
+      itemBuilder: (_, i) {
+        final url = _photos[i]['url']!;
+        final full = url.startsWith('http') ? url : '$apiUrl$url';
+        return InkWell(
+          onTap: () => _viewPhoto(url),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(full, fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                    color: Colors.grey[800],
+                    child: const Icon(Icons.broken_image, color: Colors.grey))),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _musicTab() {
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: widget.isDark ? Colors.grey[900] : Colors.grey[200],
+            borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          const Icon(Icons.radio, color: Color(0xFFF5C542)),
+          const SizedBox(width: 8),
+          const Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Study Beats', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('Built-in lo-fi player', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          ])),
+          IconButton(
+              icon: const Icon(Icons.play_arrow),
+              onPressed: () => _ap.play(UrlSource(
+                  'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3'))),
+          IconButton(icon: const Icon(Icons.pause), onPressed: () => _ap.pause()),
+          IconButton(icon: const Icon(Icons.stop), onPressed: () => _ap.stop()),
+        ]),
+      ),
+      const SizedBox(height: 20),
+      Text('Your Music Library (${_music.length})',
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      if (_music.isEmpty)
+        Padding(
+            padding: const EdgeInsets.only(top: 20),
+            child: _emptyMsg('No music yet', 'Upload music from any note')),
+      for (final m in _music)
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
+            title: Text(m['url']!.split('/').last, overflow: TextOverflow.ellipsis),
+            subtitle: Text('From: ${m['note']}', style: const TextStyle(fontSize: 11)),
+            onTap: () => _play(m['url']!),
+          ),
+        ),
+    ]);
+  }
+
+  Widget _videosTab() {
+    if (_videos.isEmpty) return _emptyMsg('No videos yet', 'Add videos or YouTube links from any note');
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      for (final v in _videos)
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.play_circle_fill, color: Colors.red),
+            title: Text(
+                v['url']!.startsWith('http')
+                    ? v['url']!
+                    : v['url']!.split('/').last,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13)),
+            subtitle: Text('From: ${v['note']}', style: const TextStyle(fontSize: 11)),
+            trailing: const Icon(Icons.open_in_new, size: 16),
+            onTap: () => launchUrl(
+                Uri.parse(v['url']!.startsWith('http') ? v['url']! : '$apiUrl${v['url']}'),
+                mode: LaunchMode.externalApplication),
+          ),
+        ),
+    ]);
+  }
+
+  Widget _linksTab() {
+    if (_links.isEmpty) return _emptyMsg('No links yet', 'Save links from any note');
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      for (final l in _links)
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.link, color: Color(0xFFF5C542)),
+            title: Text(l['url']!, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13)),
+            subtitle: Text('From: ${l['note']}', style: const TextStyle(fontSize: 11)),
+            trailing: const Icon(Icons.open_in_new, size: 16),
+            onTap: () => launchUrl(Uri.parse(l['url']!), mode: LaunchMode.externalApplication),
+          ),
+        ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final tabs = ['Notes', 'Photos', 'Music', 'Videos', 'Links'];
+    final icons = [
+      Icons.sticky_note_2,
+      Icons.photo,
+      Icons.music_note,
+      Icons.videocam,
+      Icons.link
+    ];
+    final views = [_notesTab(), _photosTab(), _musicTab(), _videosTab(), _linksTab()];
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-            icon: const Icon(Icons.arrow_back), onPressed: _logout, tooltip: 'Logout'),
+            icon: const Icon(Icons.logout), onPressed: _logout, tooltip: 'Logout'),
         title: const Text('DevVault', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         actions: [
           IconButton(
@@ -354,6 +716,24 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(children: [
         Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('$_greeting, ${widget.username} 👋',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(_todayString, style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(children: [
+            _statCard(Icons.sticky_note_2, '${notes.length}', 'Notes'),
+            const SizedBox(width: 8),
+            _statCard(Icons.push_pin, '$_pinnedCount', 'Pinned'),
+            const SizedBox(width: 8),
+            _statCard(Icons.text_fields, '$_totalWords', 'Words'),
+          ]),
+        ),
+        Padding(
           padding: const EdgeInsets.all(16),
           child: TextField(
             controller: _sc,
@@ -367,149 +747,36 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        Expanded(
-          child: loading
-              ? const Center(child: CircularProgressIndicator())
-              : filtered.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.note_add_outlined, size: 64, color: Colors.grey[600]),
-                          const SizedBox(height: 16),
-                          Text('No notes yet',
-                              style: TextStyle(color: Colors.grey[400], fontSize: 18)),
-                          const SizedBox(height: 8),
-                          Text('Tap + to create your first note',
-                              style: TextStyle(color: Colors.grey[600])),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filtered.length,
-                      itemBuilder: (_, i) {
-                        final n = filtered[i];
-                        final pin = n['is_pinned'] == 1;
-                        final bt = (n['body'] ?? '').toString();
-                        final m = _media(bt);
-                        return Dismissible(
-                          key: Key('note_${n['id']}'),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 20),
-                            color: Colors.red,
-                            child: const Icon(Icons.delete, color: Colors.white),
-                          ),
-                          confirmDismiss: (_) async {
-                            await deleteNote(n['id']);
-                            return false;
-                          },
-                          child: Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.all(16),
-                              leading: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                    color: pin
-                                        ? const Color(0xFFF5C542).withOpacity(0.2)
-                                        : (widget.isDark ? Colors.grey[800] : Colors.grey[200]),
-                                    borderRadius: BorderRadius.circular(8)),
-                                child: Icon(
-                                    pin ? Icons.push_pin : Icons.description,
-                                    color: pin ? const Color(0xFFF5C542) : Colors.grey),
-                              ),
-                              title: Row(children: [
-                                Expanded(
-                                    child: Text(n['title'] ?? '',
-                                        style: const TextStyle(fontWeight: FontWeight.w600))),
-                                if (pin)
-                                  const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
-                              ]),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 8),
-                                    child: Text(
-                                      bt.length > 80 ? '${bt.substring(0, 80)}...' : bt,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: Colors.grey[400]),
-                                    ),
-                                  ),
-                                  if (m['img']! || m['aud']! || m['vid']!)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Row(children: [
-                                        if (m['img']!)
-                                          const Padding(
-                                              padding: EdgeInsets.only(right: 8),
-                                              child: Icon(Icons.photo, size: 16, color: Color(0xFFF5C542))),
-                                        if (m['aud']!)
-                                          const Padding(
-                                              padding: EdgeInsets.only(right: 8),
-                                              child: Icon(Icons.music_note, size: 16, color: Color(0xFFF5C542))),
-                                        if (m['vid']!)
-                                          const Padding(
-                                              padding: EdgeInsets.only(right: 8),
-                                              child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
-                                      ]),
-                                    ),
-                                ],
-                              ),
-                              trailing: PopupMenuButton<String>(
-                                onSelected: (v) {
-                                  if (v == 'share') shareNote(n['id']);
-                                  if (v == 'pin') togglePin(n);
-                                  if (v == 'delete') deleteNote(n['id']);
-                                },
-                                itemBuilder: (_) => [
-                                  const PopupMenuItem(
-                                      value: 'share',
-                                      child: Row(children: [
-                                        Icon(Icons.share, size: 20),
-                                        SizedBox(width: 8),
-                                        Text('Share')
-                                      ])),
-                                  PopupMenuItem(
-                                      value: 'pin',
-                                      child: Row(children: [
-                                        Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
-                                        const SizedBox(width: 8),
-                                        Text(pin ? 'Unpin' : 'Pin')
-                                      ])),
-                                  const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(children: [
-                                        Icon(Icons.delete, size: 20, color: Colors.red),
-                                        SizedBox(width: 8),
-                                        Text('Delete', style: TextStyle(color: Colors.red))
-                                      ])),
-                                ],
-                              ),
-                              onTap: () async {
-                                await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) => NoteEditor(token: widget.token, note: n)));
-                                loadNotes();
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+        SizedBox(
+          height: 50,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: tabs.length,
+            itemBuilder: (_, i) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  selected: _tab == i,
+                  onSelected: (_) => setState(() => _tab = i),
+                  avatar: Icon(icons[i], size: 18),
+                  label: Text(tabs[i]),
+                  selectedColor: const Color(0xFFF5C542),
+                  labelStyle: TextStyle(
+                      color: _tab == i ? Colors.black : Colors.grey,
+                      fontWeight: _tab == i ? FontWeight.bold : FontWeight.normal),
+                ),
+              );
+            },
+          ),
         ),
+        const Divider(height: 16),
+        Expanded(child: loading ? const Center(child: CircularProgressIndicator()) : views[_tab]),
       ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          await Navigator.push(context,
-              MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token)));
+          await Navigator.push(
+              context, MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token)));
           loadNotes();
         },
         icon: const Icon(Icons.add),
@@ -740,8 +1007,6 @@ class _NoteEditorState extends State<NoteEditor> {
     Navigator.pop(context);
   }
 
-  // ===================== TAB VIEWS =====================
-
   Widget _tabNote() {
     return Column(children: [
       TextField(
@@ -799,8 +1064,7 @@ class _NoteEditorState extends State<NoteEditor> {
             const Icon(Icons.mic, color: Colors.red),
             const SizedBox(width: 8),
             Expanded(
-                child: Text(
-                    _lastWords.isEmpty ? 'Listening...' : _lastWords,
+                child: Text(_lastWords.isEmpty ? 'Listening...' : _lastWords,
                     style: const TextStyle(color: Colors.red))),
             const Text('REC', style: TextStyle(color: Colors.red, fontSize: 12)),
           ]),
@@ -818,7 +1082,12 @@ class _NoteEditorState extends State<NoteEditor> {
         children: [
           for (int i = 0; i < _imgs.length; i++)
             Stack(children: [
-              Image.network('$apiUrl${_imgs[i]}', width: 100, height: 100, fit: BoxFit.cover),
+              Image.network('$apiUrl${_imgs[i]}', width: 100, height: 100, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                      width: 100,
+                      height: 100,
+                      color: Colors.grey[800],
+                      child: const Icon(Icons.broken_image, color: Colors.grey))),
               Positioned(
                   top: 0,
                   right: 0,
@@ -848,14 +1117,8 @@ class _NoteEditorState extends State<NoteEditor> {
             label: const Text('Lo-fi Beats'),
             onPressed: () => _ap.play(UrlSource(
                 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3'))),
-        ActionChip(
-            avatar: const Icon(Icons.pause),
-            label: const Text('Pause'),
-            onPressed: () => _ap.pause()),
-        ActionChip(
-            avatar: const Icon(Icons.stop),
-            label: const Text('Stop'),
-            onPressed: () => _ap.stop()),
+        ActionChip(avatar: const Icon(Icons.pause), label: const Text('Pause'), onPressed: () => _ap.pause()),
+        ActionChip(avatar: const Icon(Icons.stop), label: const Text('Stop'), onPressed: () => _ap.stop()),
       ]),
       const SizedBox(height: 16),
       const Text('Uploaded Music', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -917,12 +1180,10 @@ class _NoteEditorState extends State<NoteEditor> {
               width: 100,
               height: 80,
               decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
-              child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 30),
-                    Text('Play', style: TextStyle(fontSize: 10)),
-                  ]),
+              child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 30),
+                Text('Play', style: TextStyle(fontSize: 10)),
+              ]),
             ),
           ),
         ActionChip(
@@ -988,8 +1249,7 @@ class _NoteEditorState extends State<NoteEditor> {
             const Icon(Icons.wifi_tethering, color: Colors.green),
             const SizedBox(width: 8),
             Expanded(
-                child: Text(
-                    _lastWords.isEmpty ? 'Listening... speak now!' : _lastWords,
+                child: Text(_lastWords.isEmpty ? 'Listening... speak now!' : _lastWords,
                     style: const TextStyle(color: Colors.green))),
           ]),
         ),
@@ -1036,7 +1296,6 @@ class _NoteEditorState extends State<NoteEditor> {
     ]);
   }
 
-  // ===================== MAIN BUILD =====================
   @override
   Widget build(BuildContext context) {
     final tabIcons = [
@@ -1064,8 +1323,7 @@ class _NoteEditorState extends State<NoteEditor> {
         actions: [
           if (_listening)
             const Padding(
-                padding: EdgeInsets.only(right: 8),
-                child: Icon(Icons.mic, color: Colors.red)),
+                padding: EdgeInsets.only(right: 8), child: Icon(Icons.mic, color: Colors.red)),
           IconButton(icon: const Icon(Icons.save), onPressed: save),
         ],
       ),
