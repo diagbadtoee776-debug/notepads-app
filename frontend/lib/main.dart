@@ -40,7 +40,7 @@ class _DevVaultAppState extends State<DevVaultApp> {
   }
 }
 
-// ===================== LOGIN / REGISTER (COMPACT) =====================
+// ===================== LOGIN / REGISTER =====================
 class AuthScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
   final bool isDark;
@@ -301,7 +301,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} (${d.day}/${d.month})';
   }
 
-  // ---------- REMINDER ALARM ----------
   void _checkReminders() {
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final n in notes) {
@@ -348,7 +347,8 @@ class _HomeScreenState extends State<HomeScreen> {
       filtered = notes.where((n) {
         final title = (n['title'] ?? '').toString().toLowerCase();
         final body = (n['body'] ?? '').toString().toLowerCase();
-        return title.contains(q) || body.contains(q);
+        final tags = RegExp(r'\[TAG:(.*?)\]').allMatches(body).map((m) => m.group(1)!.toLowerCase()).join(' ');
+        return title.contains(q) || body.contains(q) || tags.contains(q);
       }).toList();
     });
   }
@@ -544,8 +544,6 @@ class _HomeScreenState extends State<HomeScreen> {
     ]));
   }
 
-  // ---------- TAB CONTENT ----------
-
   Widget _notesTab() {
     if (filtered.isEmpty) {
       return _emptyMsg('No notes yet', 'Tap + New Note to create your first note');
@@ -559,120 +557,151 @@ class _HomeScreenState extends State<HomeScreen> {
         final bt = (n['body'] ?? '').toString();
         final m = _media(bt);
         final rem = RegExp(r'\[REM:(\d+)\]').firstMatch(bt)?.group(1);
-        return Dismissible(
-          key: Key('note_${n['id']}'),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: Colors.red,
-            child: const Icon(Icons.delete, color: Colors.white),
-          ),
-          confirmDismiss: (_) async {
-            await deleteNote(n['id']);
-            return false;
-          },
-          child: Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                    color: pin
-                        ? const Color(0xFFF5C542).withOpacity(0.2)
-                        : (widget.isDark ? Colors.grey[800] : Colors.grey[200]),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Icon(pin ? Icons.push_pin : Icons.description,
-                    color: pin ? const Color(0xFFF5C542) : Colors.grey),
+        final colorHex = RegExp(r'\[COLOR:(.*?)\]').firstMatch(bt)?.group(1);
+        final tags = RegExp(r'\[TAG:(.*?)\]').allMatches(bt).map((x) => x.group(1)!).toList();
+        
+        final borderColor = colorHex != null && colorHex.isNotEmpty 
+            ? Color(int.parse('0x$colorHex')) 
+            : Colors.transparent;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Dismissible(
+            key: Key('note_${n['id']}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              color: Colors.red,
+              child: const Icon(Icons.delete, color: Colors.white),
+            ),
+            confirmDismiss: (_) async {
+              await deleteNote(n['id']);
+              return false;
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border(left: BorderSide(color: borderColor, width: 8)),
+                borderRadius: BorderRadius.circular(12),
               ),
-              title: Row(children: [
-                Expanded(
-                    child: Text(n['title'] ?? '',
-                        style: const TextStyle(fontWeight: FontWeight.w600))),
-                if (pin) const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
-              ]),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      _preview(bt),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.grey[400]),
-                    ),
+              child: Card(
+                margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                        color: pin
+                            ? const Color(0xFFF5C542).withOpacity(0.2)
+                            : (widget.isDark ? Colors.grey[800] : Colors.grey[200]),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Icon(pin ? Icons.push_pin : Icons.description,
+                        color: pin ? const Color(0xFFF5C542) : Colors.grey),
                   ),
-                  if (m['img']! || m['aud']! || m['vid']! || rem != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Row(children: [
-                        if (m['img']!)
-                          const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.photo, size: 16, color: Color(0xFFF5C542))),
-                        if (m['aud']!)
-                          const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.music_note, size: 16, color: Color(0xFFF5C542))),
-                        if (m['vid']!)
-                          const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
-                        if (rem != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(10)),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              const Icon(Icons.alarm, size: 14, color: Colors.orange),
-                              const SizedBox(width: 4),
-                              Text(_fmtRemind(int.parse(rem)),
-                                  style: const TextStyle(fontSize: 11, color: Colors.orange)),
-                            ]),
+                  title: Row(children: [
+                    Expanded(
+                        child: Text(n['title'] ?? '',
+                            style: const TextStyle(fontWeight: FontWeight.w600))),
+                    if (pin) const Icon(Icons.push_pin, size: 16, color: Color(0xFFF5C542)),
+                  ]),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _preview(bt),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.grey[400]),
+                        ),
+                      ),
+                      if (tags.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: tags.map((tag) => Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                  color: const Color(0xFFF5C542).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: Text('#$tag', style: const TextStyle(fontSize: 11, color: Color(0xFFF5C542))),
+                            )).toList(),
                           ),
-                      ]),
-                    ),
-                ],
+                        ),
+                      if (m['img']! || m['aud']! || m['vid']! || rem != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(children: [
+                            if (m['img']!)
+                              const Padding(
+                                  padding: EdgeInsets.only(right: 8),
+                                  child: Icon(Icons.photo, size: 16, color: Color(0xFFF5C542))),
+                            if (m['aud']!)
+                              const Padding(
+                                  padding: EdgeInsets.only(right: 8),
+                                  child: Icon(Icons.music_note, size: 16, color: Color(0xFFF5C542))),
+                            if (m['vid']!)
+                              const Padding(
+                                  padding: EdgeInsets.only(right: 8),
+                                  child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
+                            if (rem != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: Colors.orange.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(10)),
+                                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  const Icon(Icons.alarm, size: 14, color: Colors.orange),
+                                  const SizedBox(width: 4),
+                                  Text(_fmtRemind(int.parse(rem)),
+                                      style: const TextStyle(fontSize: 11, color: Colors.orange)),
+                                ]),
+                              ),
+                          ]),
+                        ),
+                    ],
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'share') shareNote(n['id']);
+                      if (v == 'pin') togglePin(n);
+                      if (v == 'delete') deleteNote(n['id']);
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: 'share',
+                          child: Row(children: [
+                            Icon(Icons.share, size: 20),
+                            SizedBox(width: 8),
+                            Text('Share')
+                          ])),
+                      PopupMenuItem(
+                          value: 'pin',
+                          child: Row(children: [
+                            Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
+                            const SizedBox(width: 8),
+                            Text(pin ? 'Unpin' : 'Pin')
+                          ])),
+                      const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(children: [
+                            Icon(Icons.delete, size: 20, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Delete', style: TextStyle(color: Colors.red))
+                          ])),
+                    ],
+                  ),
+                  onTap: () async {
+                    await Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token, note: n)));
+                    loadNotes();
+                  },
+                ),
               ),
-              trailing: PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'share') shareNote(n['id']);
-                  if (v == 'pin') togglePin(n);
-                  if (v == 'delete') deleteNote(n['id']);
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                      value: 'share',
-                      child: Row(children: [
-                        Icon(Icons.share, size: 20),
-                        SizedBox(width: 8),
-                        Text('Share')
-                      ])),
-                  PopupMenuItem(
-                      value: 'pin',
-                      child: Row(children: [
-                        Icon(pin ? Icons.push_pin : Icons.push_pin_outlined, size: 20),
-                        const SizedBox(width: 8),
-                        Text(pin ? 'Unpin' : 'Pin')
-                      ])),
-                  const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(children: [
-                        Icon(Icons.delete, size: 20, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Delete', style: TextStyle(color: Colors.red))
-                      ])),
-                ],
-              ),
-              onTap: () async {
-                await Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token, note: n)));
-                loadNotes();
-              },
             ),
           ),
         );
@@ -842,7 +871,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: TextField(
             controller: _sc,
             decoration: InputDecoration(
-              hintText: 'Search notes...',
+              hintText: 'Search notes or tags...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
               fillColor: widget.isDark ? Colors.grey[900] : Colors.grey[200],
@@ -909,6 +938,7 @@ class _NoteEditorState extends State<NoteEditor> {
   final _title = TextEditingController();
   final _body = TextEditingController();
   final _ytCtrl = TextEditingController();
+  final _tagCtrl = TextEditingController();
   int _tab = 0;
   bool _code = false;
 
@@ -923,6 +953,8 @@ class _NoteEditorState extends State<NoteEditor> {
   String? _audioUrl;
   String _lastWords = '';
   DateTime? _remind;
+  String _color = '';
+  List<String> _tags = [];
 
   List<String> _imgs = [];
   List<String> _vids = [];
@@ -930,6 +962,16 @@ class _NoteEditorState extends State<NoteEditor> {
   List<String> _links = [];
   String? _yt;
   String _folder = 'General';
+
+  static const _noteColors = [
+    '', 
+    'FFD32F2F', // Red
+    'FFF57C00', // Orange
+    'FFFBC02D', // Yellow
+    'FF388E3C', // Green
+    'FF1976D2', // Blue
+    'FF7B1FA2'  // Purple
+  ];
 
   @override
   void initState() {
@@ -1001,14 +1043,20 @@ class _NoteEditorState extends State<NoteEditor> {
     _vids = RegExp(r'\[VID:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _music = RegExp(r'\[MUSIC:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _links = RegExp(r'\[LINK:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    _tags = RegExp(r'\[TAG:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    
     final remMs = RegExp(r'\[REM:(\d+)\]').firstMatch(b)?.group(1);
     if (remMs != null) {
       _remind = DateTime.fromMillisecondsSinceEpoch(int.parse(remMs));
     }
+    
+    _color = RegExp(r'\[COLOR:(.*?)\]').firstMatch(b)?.group(1) ?? '';
+    
     if (_yt != null) _ytCtrl.text = _yt!;
     _body.text = b
         .replaceAll(
-            RegExp(r'\[IMG:.*?\]|\[AUDIO:.*?\]|\[YT:.*?\]|\[VID:.*?\]|\[MUSIC:.*?\]|\[LINK:.*?\]|\[REM:\d+?\]'),
+            RegExp(
+                r'\[IMG:.*?\]|\[AUDIO:.*?\]|\[YT:.*?\]|\[VID:.*?\]|\[MUSIC:.*?\]|\[LINK:.*?\]|\[REM:\d+?\]|\[COLOR:.*?\]|\[TAG:.*?\]'),
             '')
         .trim();
   }
@@ -1027,9 +1075,13 @@ class _NoteEditorState extends State<NoteEditor> {
     for (final u in _links) {
       b += '\n[LINK:$u]';
     }
+    for (final t in _tags) {
+      b += '\n[TAG:$t]';
+    }
     if (_audioUrl != null) b += '\n[AUDIO:$_audioUrl]';
     if (_yt != null && _yt!.isNotEmpty) b += '\n[YT:$_yt]';
     if (_remind != null) b += '\n[REM:${_remind!.millisecondsSinceEpoch}]';
+    if (_color.isNotEmpty) b += '\n[COLOR:$_color]';
     return b;
   }
 
@@ -1170,6 +1222,70 @@ class _NoteEditorState extends State<NoteEditor> {
           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           decoration: const InputDecoration(labelText: 'Title', border: InputBorder.none)),
       const Divider(height: 1),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
+        child: Row(children: [
+          const Text('Color:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 8),
+          for (final c in _noteColors) ...[
+            InkWell(
+              onTap: () => setState(() => _color = c),
+              child: Container(
+                width: 24, height: 24,
+                decoration: BoxDecoration(
+                  color: c.isEmpty ? Colors.grey[400] : Color(int.parse('0x$c')),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: _color == c ? Colors.white : Colors.transparent, width: 3),
+                  boxShadow: _color == c ? [BoxShadow(color: Colors.white.withOpacity(0.5), blurRadius: 4)] : null
+                ),
+                child: c.isEmpty ? const Icon(Icons.format_color_reset, size: 14, color: Colors.white) : null,
+              )
+            ),
+            const SizedBox(width: 6)
+          ]
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
+        child: Row(children: [
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in _tags)
+                  Chip(
+                    label: Text('#$t', style: const TextStyle(fontSize: 11)),
+                    deleteIcon: const Icon(Icons.close, size: 14),
+                    onDeleted: () => setState(() => _tags.remove(t)),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                SizedBox(
+                  width: 100,
+                  child: TextField(
+                    controller: _tagCtrl,
+                    decoration: const InputDecoration(
+                      hintText: '+ Tag',
+                      isDense: true,
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8)
+                    ),
+                    onSubmitted: (v) {
+                      if (v.isNotEmpty && !_tags.contains(v)) {
+                        setState(() {
+                          _tags.add(v.trim().toLowerCase());
+                          _tagCtrl.clear();
+                        });
+                      }
+                    },
+                  ),
+                )
+              ],
+            ),
+          )
+        ]),
+      ),
       Row(children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1181,6 +1297,7 @@ class _NoteEditorState extends State<NoteEditor> {
                 .toList(),
             onChanged: (v) => setState(() => _folder = v!),
             underline: const SizedBox(),
+            isDense: true,
           ),
         ),
         const Spacer(),
