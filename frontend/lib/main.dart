@@ -216,6 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final AudioPlayer _ap = AudioPlayer();
   Timer? _clock;
   String _now = '';
+  final Set<dynamic> _alerted = {};
 
   List<Map<String, String>> _photos = [];
   List<Map<String, String>> _music = [];
@@ -228,6 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateTime();
     _clock = Timer.periodic(const Duration(seconds: 10), (_) {
       setState(() => _updateTime());
+      _checkReminders();
     });
     loadNotes();
     _sc.addListener(_filter);
@@ -242,10 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _updateTime() {
     final d = DateTime.now();
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    final min = d.minute.toString().padLeft(2, '0');
-    final ampm = d.hour < 12 ? 'AM' : 'PM';
-    _now = '$h:$min $ampm';
+    _now = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
   String get _greeting {
@@ -295,6 +294,52 @@ class _HomeScreenState extends State<HomeScreen> {
     final clean = bt.replaceAll(RegExp(r'\[\w+:.*?\]'), '').trim();
     if (clean.isEmpty) return '📎 Media attached';
     return clean.length > 80 ? '${clean.substring(0, 80)}...' : clean;
+  }
+
+  String _fmtRemind(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} (${d.day}/${d.month})';
+  }
+
+  // ---------- REMINDER ALARM ----------
+  void _checkReminders() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final n in notes) {
+      final m = RegExp(r'\[REM:(\d+)\]')
+          .firstMatch((n['body'] ?? '').toString());
+      if (m != null) {
+        final ms = int.tryParse(m.group(1)!) ?? 0;
+        final id = n['id'];
+        if (ms <= now && !_alerted.contains(id)) {
+          _alerted.add(id);
+          _ap
+              .play(UrlSource(
+                  'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg'))
+              .catchError((_) {});
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(children: [
+                Icon(Icons.alarm, color: Colors.orange, size: 32),
+                SizedBox(width: 8),
+                Text('Reminder!'),
+              ]),
+              content: Text(n['title'] ?? 'You have a pending reminder!',
+                  style: const TextStyle(fontSize: 16)),
+              actions: [
+                FilledButton(
+                    onPressed: () {
+                      _ap.stop();
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Done')),
+              ],
+            ),
+          );
+        }
+      }
+    }
   }
 
   void _filter() {
@@ -353,6 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _extractMedia();
           loading = false;
         });
+        _checkReminders();
       }
     } catch (_) {
       setState(() => loading = false);
@@ -512,6 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final pin = n['is_pinned'] == 1;
         final bt = (n['body'] ?? '').toString();
         final m = _media(bt);
+        final rem = RegExp(r'\[REM:(\d+)\]').firstMatch(bt)?.group(1);
         return Dismissible(
           key: Key('note_${n['id']}'),
           direction: DismissDirection.endToStart,
@@ -558,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextStyle(color: Colors.grey[400]),
                     ),
                   ),
-                  if (m['img']! || m['aud']! || m['vid']!)
+                  if (m['img']! || m['aud']! || m['vid']! || rem != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Row(children: [
@@ -574,6 +621,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Padding(
                               padding: EdgeInsets.only(right: 8),
                               child: Icon(Icons.videocam, size: 16, color: Color(0xFFF5C542))),
+                        if (rem != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10)),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              const Icon(Icons.alarm, size: 14, color: Colors.orange),
+                              const SizedBox(width: 4),
+                              Text(_fmtRemind(int.parse(rem)),
+                                  style: const TextStyle(fontSize: 11, color: Colors.orange)),
+                            ]),
+                          ),
                       ]),
                     ),
                 ],
@@ -862,6 +922,7 @@ class _NoteEditorState extends State<NoteEditor> {
   bool _recording = false;
   String? _audioUrl;
   String _lastWords = '';
+  DateTime? _remind;
 
   List<String> _imgs = [];
   List<String> _vids = [];
@@ -909,6 +970,29 @@ class _NoteEditorState extends State<NoteEditor> {
     return Uri.decodeComponent(name);
   }
 
+  String _fmtRemind(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}, ${months[d.month - 1]} ${d.day}';
+  }
+
+  Future<void> _pickRemind() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+        context: context,
+        initialDate: _remind ?? now,
+        firstDate: now,
+        lastDate: now.add(const Duration(days: 365)));
+    if (date == null) return;
+    final time = await showTimePicker(
+        context: context,
+        initialTime: _remind != null
+            ? TimeOfDay.fromDateTime(_remind!)
+            : TimeOfDay.fromDateTime(now.add(const Duration(minutes: 1))));
+    if (time == null) return;
+    setState(() => _remind = DateTime(date.year, date.month, date.day, time.hour, time.minute));
+  }
+
   void _parse() {
     final b = _body.text;
     _imgs = RegExp(r'\[IMG:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
@@ -917,10 +1001,14 @@ class _NoteEditorState extends State<NoteEditor> {
     _vids = RegExp(r'\[VID:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _music = RegExp(r'\[MUSIC:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
     _links = RegExp(r'\[LINK:(.*?)\]').allMatches(b).map((m) => m.group(1)!).toList();
+    final remMs = RegExp(r'\[REM:(\d+)\]').firstMatch(b)?.group(1);
+    if (remMs != null) {
+      _remind = DateTime.fromMillisecondsSinceEpoch(int.parse(remMs));
+    }
     if (_yt != null) _ytCtrl.text = _yt!;
     _body.text = b
         .replaceAll(
-            RegExp(r'\[IMG:.*?\]|\[AUDIO:.*?\]|\[YT:.*?\]|\[VID:.*?\]|\[MUSIC:.*?\]|\[LINK:.*?\]'),
+            RegExp(r'\[IMG:.*?\]|\[AUDIO:.*?\]|\[YT:.*?\]|\[VID:.*?\]|\[MUSIC:.*?\]|\[LINK:.*?\]|\[REM:\d+?\]'),
             '')
         .trim();
   }
@@ -941,6 +1029,7 @@ class _NoteEditorState extends State<NoteEditor> {
     }
     if (_audioUrl != null) b += '\n[AUDIO:$_audioUrl]';
     if (_yt != null && _yt!.isNotEmpty) b += '\n[YT:$_yt]';
+    if (_remind != null) b += '\n[REM:${_remind!.millisecondsSinceEpoch}]';
     return b;
   }
 
@@ -1097,9 +1186,26 @@ class _NoteEditorState extends State<NoteEditor> {
         const Spacer(),
         Text('$_wc words', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
         IconButton(
+            icon: Icon(_remind != null ? Icons.alarm : Icons.alarm_add,
+                size: 20, color: _remind != null ? Colors.orange : null),
+            tooltip: 'Set reminder',
+            onPressed: _pickRemind),
+        IconButton(
             icon: Icon(_code ? Icons.code_off : Icons.code, size: 20),
             onPressed: () => setState(() => _code = !_code)),
       ]),
+      if (_remind != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Chip(
+            backgroundColor: Colors.orange.withOpacity(0.15),
+            avatar: const Icon(Icons.alarm, size: 16, color: Colors.orange),
+            label: Text('Remind: ${_fmtRemind(_remind!.millisecondsSinceEpoch)}',
+                style: const TextStyle(fontSize: 12, color: Colors.orange)),
+            deleteIcon: const Icon(Icons.close, size: 14, color: Colors.orange),
+            onDeleted: () => setState(() => _remind = null),
+          ),
+        ),
       Expanded(
         child: _code
             ? SingleChildScrollView(
