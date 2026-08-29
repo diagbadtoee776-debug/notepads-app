@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -39,7 +40,7 @@ class _DevVaultAppState extends State<DevVaultApp> {
   }
 }
 
-// ===================== LOGIN / REGISTER =====================
+// ===================== LOGIN / REGISTER (COMPACT) =====================
 class AuthScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
   final bool isDark;
@@ -114,26 +115,26 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(16),
             child: Card(
               elevation: 8,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
-                padding: const EdgeInsets.all(32),
+                padding: const EdgeInsets.all(20),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.lock_outline, size: 64, color: Theme.of(context).colorScheme.primary),
+                  Icon(Icons.lock_outline, size: 44, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: 8),
+                  const Text('DevVault', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                  Text('Your offline-first knowledge hub', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
                   const SizedBox(height: 16),
-                  const Text('DevVault', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-                  Text('Your offline-first knowledge hub', style: TextStyle(color: Colors.grey[400])),
-                  const SizedBox(height: 32),
                   if (!isLogin) ...[
                     TextField(
                         controller: _u,
                         decoration: InputDecoration(
                             labelText: 'Username',
                             prefixIcon: const Icon(Icons.person),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-                    const SizedBox(height: 16),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: dept,
                       items: const ['Personal', 'CSC', 'ECE', 'MTH', 'PHY', 'BUS']
@@ -143,40 +144,41 @@ class _AuthScreenState extends State<AuthScreen> {
                       decoration: InputDecoration(
                           labelText: 'Department (optional)',
                           prefixIcon: const Icon(Icons.school),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 10),
                   ],
                   TextField(
                       controller: _e,
                       decoration: InputDecoration(
                           labelText: 'Email',
                           prefixIcon: const Icon(Icons.email),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
                       keyboardType: TextInputType.emailAddress),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   TextField(
                       controller: _p,
                       decoration: InputDecoration(
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
                       obscureText: true),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
+                    height: 46,
                     child: FilledButton(
                       onPressed: busy ? null : submit,
                       style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                       child: Text(isLogin ? 'LOGIN' : 'CREATE ACCOUNT',
-                          style: const TextStyle(fontSize: 16)),
+                          style: const TextStyle(fontSize: 15)),
                     ),
                   ),
                   TextButton(
                     onPressed: () => setState(() => isLogin = !isLogin),
-                    child: Text(isLogin ? 'New here? Create account' : 'Have an account? Login'),
+                    child: Text(isLogin ? 'New here? Create account' : 'Have an account? Login',
+                        style: const TextStyle(fontSize: 13)),
                   ),
                 ]),
               ),
@@ -212,6 +214,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   final _sc = TextEditingController();
   final AudioPlayer _ap = AudioPlayer();
+  Timer? _clock;
+  String _now = '';
 
   List<Map<String, String>> _photos = [];
   List<Map<String, String>> _music = [];
@@ -221,14 +225,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _updateTime();
+    _clock = Timer.periodic(const Duration(seconds: 10), (_) {
+      setState(() => _updateTime());
+    });
     loadNotes();
     _sc.addListener(_filter);
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     _ap.dispose();
     super.dispose();
+  }
+
+  void _updateTime() {
+    final d = DateTime.now();
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final min = d.minute.toString().padLeft(2, '0');
+    final ampm = d.hour < 12 ? 'AM' : 'PM';
+    _now = '$h:$min $ampm';
   }
 
   String get _greeting {
@@ -254,6 +271,30 @@ class _HomeScreenState extends State<HomeScreen> {
       if (t.isNotEmpty) w += t.split(RegExp(r'\s+')).length;
     }
     return w;
+  }
+
+  String get _fabLabel =>
+      ['New Note', 'Add Photo', 'Add Music', 'Add Video', 'Add Link'][_tab];
+
+  IconData get _fabIcon => [
+        Icons.add,
+        Icons.add_photo_alternate,
+        Icons.library_music,
+        Icons.video_library,
+        Icons.add_link
+      ][_tab];
+
+  String _cleanName(String url) {
+    var name = url.split('/').last;
+    name = name.replaceFirst(RegExp(r'^\d+_'), '');
+    if (name.isEmpty) name = url;
+    return Uri.decodeComponent(name);
+  }
+
+  String _preview(String bt) {
+    final clean = bt.replaceAll(RegExp(r'\[\w+:.*?\]'), '').trim();
+    if (clean.isEmpty) return '📎 Media attached';
+    return clean.length > 80 ? '${clean.substring(0, 80)}...' : clean;
   }
 
   void _filter() {
@@ -436,10 +477,10 @@ class _HomeScreenState extends State<HomeScreen> {
             color: widget.isDark ? Colors.grey[900] : Colors.grey[200],
             borderRadius: BorderRadius.circular(12)),
         child: Row(children: [
-          Icon(ic, color: const Color(0xFFF5C542), size: 22),
+          Icon(ic, color: const Color(0xFFF5C542), size: 24),
           const SizedBox(width: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
             Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
           ]),
         ]),
@@ -511,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      bt.length > 80 ? '${bt.substring(0, 80)}...' : bt,
+                      _preview(bt),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: Colors.grey[400]),
@@ -580,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _photosTab() {
-    if (_photos.isEmpty) return _emptyMsg('No photos yet', 'Add photos from any note');
+    if (_photos.isEmpty) return _emptyMsg('No photos yet', 'Tap + Add Photo to add one');
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -611,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen> {
             color: widget.isDark ? Colors.grey[900] : Colors.grey[200],
             borderRadius: BorderRadius.circular(12)),
         child: Row(children: [
-          const Icon(Icons.radio, color: Color(0xFFF5C542)),
+          const Icon(Icons.radio, color: Color(0xFFF5C542), size: 28),
           const SizedBox(width: 8),
           const Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -619,26 +660,26 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Built-in lo-fi player', style: TextStyle(fontSize: 11, color: Colors.grey)),
           ])),
           IconButton(
-              icon: const Icon(Icons.play_arrow),
+              icon: const Icon(Icons.play_arrow, size: 28),
               onPressed: () => _ap.play(UrlSource(
                   'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3'))),
-          IconButton(icon: const Icon(Icons.pause), onPressed: () => _ap.pause()),
-          IconButton(icon: const Icon(Icons.stop), onPressed: () => _ap.stop()),
+          IconButton(icon: const Icon(Icons.pause, size: 28), onPressed: () => _ap.pause()),
+          IconButton(icon: const Icon(Icons.stop, size: 28), onPressed: () => _ap.stop()),
         ]),
       ),
       const SizedBox(height: 20),
       Text('Your Music Library (${_music.length})',
-          style: const TextStyle(fontWeight: FontWeight.w600)),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
       const SizedBox(height: 8),
       if (_music.isEmpty)
         Padding(
             padding: const EdgeInsets.only(top: 20),
-            child: _emptyMsg('No music yet', 'Upload music from any note')),
+            child: _emptyMsg('No music yet', 'Tap + Add Music to upload a song')),
       for (final m in _music)
         Card(
           child: ListTile(
-            leading: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
-            title: Text(m['url']!.split('/').last, overflow: TextOverflow.ellipsis),
+            leading: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 32),
+            title: Text(_cleanName(m['url']!), overflow: TextOverflow.ellipsis),
             subtitle: Text('From: ${m['note']}', style: const TextStyle(fontSize: 11)),
             onTap: () => _play(m['url']!),
           ),
@@ -647,16 +688,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _videosTab() {
-    if (_videos.isEmpty) return _emptyMsg('No videos yet', 'Add videos or YouTube links from any note');
+    if (_videos.isEmpty) return _emptyMsg('No videos yet', 'Tap + Add Video to add one');
     return ListView(padding: const EdgeInsets.all(16), children: [
       for (final v in _videos)
         Card(
           child: ListTile(
-            leading: const Icon(Icons.play_circle_fill, color: Colors.red),
+            leading: const Icon(Icons.play_circle_fill, color: Colors.red, size: 32),
             title: Text(
-                v['url']!.startsWith('http')
-                    ? v['url']!
-                    : v['url']!.split('/').last,
+                v['url']!.startsWith('http') ? v['url']! : _cleanName(v['url']!),
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13)),
             subtitle: Text('From: ${v['note']}', style: const TextStyle(fontSize: 11)),
@@ -670,12 +709,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _linksTab() {
-    if (_links.isEmpty) return _emptyMsg('No links yet', 'Save links from any note');
+    if (_links.isEmpty) return _emptyMsg('No links yet', 'Tap + Add Link to save one');
     return ListView(padding: const EdgeInsets.all(16), children: [
       for (final l in _links)
         Card(
           child: ListTile(
-            leading: const Icon(Icons.link, color: Color(0xFFF5C542)),
+            leading: const Icon(Icons.link, color: Color(0xFFF5C542), size: 28),
             title: Text(l['url']!, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13)),
             subtitle: Text('From: ${l['note']}', style: const TextStyle(fontSize: 11)),
@@ -720,7 +759,12 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('$_greeting, ${widget.username} 👋',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text(_todayString, style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+            Row(children: [
+              Icon(Icons.access_time, size: 14, color: Colors.grey[400]),
+              const SizedBox(width: 4),
+              Text('$_todayString • $_now',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+            ]),
           ]),
         ),
         Padding(
@@ -748,7 +792,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         SizedBox(
-          height: 50,
+          height: 58,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -759,8 +803,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ChoiceChip(
                   selected: _tab == i,
                   onSelected: (_) => setState(() => _tab = i),
-                  avatar: Icon(icons[i], size: 18),
-                  label: Text(tabs[i]),
+                  avatar: Icon(icons[i], size: 22),
+                  label: Text(tabs[i], style: const TextStyle(fontSize: 14)),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
                   selectedColor: const Color(0xFFF5C542),
                   labelStyle: TextStyle(
                       color: _tab == i ? Colors.black : Colors.grey,
@@ -775,12 +820,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
+          final editorTabs = [0, 1, 2, 3, 5];
           await Navigator.push(
-              context, MaterialPageRoute(builder: (_) => NoteEditor(token: widget.token)));
+              context,
+              MaterialPageRoute(
+                  builder: (_) => NoteEditor(
+                      token: widget.token, initialTab: editorTabs[_tab])));
           loadNotes();
         },
-        icon: const Icon(Icons.add),
-        label: const Text('New Note'),
+        icon: Icon(_fabIcon, size: 24),
+        label: Text(_fabLabel, style: const TextStyle(fontSize: 15)),
       ),
     );
   }
@@ -790,7 +839,8 @@ class _HomeScreenState extends State<HomeScreen> {
 class NoteEditor extends StatefulWidget {
   final String token;
   final dynamic note;
-  const NoteEditor({super.key, required this.token, this.note});
+  final int initialTab;
+  const NoteEditor({super.key, required this.token, this.note, this.initialTab = 0});
   @override
   State<NoteEditor> createState() => _NoteEditorState();
 }
@@ -823,6 +873,7 @@ class _NoteEditorState extends State<NoteEditor> {
   @override
   void initState() {
     super.initState();
+    _tab = widget.initialTab;
     _initSpeech();
     if (widget.note != null) {
       _title.text = widget.note['title'] ?? '';
@@ -849,6 +900,13 @@ class _NoteEditorState extends State<NoteEditor> {
         }
       },
     );
+  }
+
+  String _cleanName(String url) {
+    var name = url.split('/').last;
+    name = name.replaceFirst(RegExp(r'^\d+_'), '');
+    if (name.isEmpty) name = url;
+    return Uri.decodeComponent(name);
   }
 
   void _parse() {
@@ -994,7 +1052,7 @@ class _NoteEditorState extends State<NoteEditor> {
       'Authorization': 'Bearer ${widget.token}'
     };
     final b = jsonEncode({
-      'title': _title.text,
+      'title': _title.text.isEmpty ? _autoTitle() : _title.text,
       'body': _build(),
       'is_pinned': isEdit ? (widget.note['is_pinned'] == 1) : false,
       'folder_id': null,
@@ -1005,6 +1063,15 @@ class _NoteEditorState extends State<NoteEditor> {
       await http.post(Uri.parse(url), headers: h, body: b);
     }
     Navigator.pop(context);
+  }
+
+  String _autoTitle() {
+    if (_imgs.isNotEmpty) return 'Photo Note';
+    if (_music.isNotEmpty) return 'Music Note';
+    if (_vids.isNotEmpty || _yt != null) return 'Video Note';
+    if (_links.isNotEmpty) return 'Links Note';
+    if (_audioUrl != null) return 'Voice Note';
+    return 'Untitled Note';
   }
 
   Widget _tabNote() {
@@ -1127,9 +1194,9 @@ class _NoteEditorState extends State<NoteEditor> {
         for (final u in _music)
           ActionChip(
               avatar: const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542)),
-              label: Text(u.split('/').last.length > 12
-                  ? '${u.split('/').last.substring(0, 12)}...'
-                  : u.split('/').last),
+              label: Text(_cleanName(u).length > 14
+                  ? '${_cleanName(u).substring(0, 14)}...'
+                  : _cleanName(u)),
               onPressed: () => _play(u)),
         ActionChip(
             avatar: const Icon(Icons.library_music),
@@ -1177,12 +1244,14 @@ class _NoteEditorState extends State<NoteEditor> {
           InkWell(
             onTap: () => launchUrl(Uri.parse('$apiUrl$u'), mode: LaunchMode.externalApplication),
             child: Container(
-              width: 100,
-              height: 80,
+              width: 110,
+              height: 85,
               decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
-              child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 30),
-                Text('Play', style: TextStyle(fontSize: 10)),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Icon(Icons.play_circle_fill, color: Color(0xFFF5C542), size: 32),
+                Text(_cleanName(u).length > 12 ? '${_cleanName(u).substring(0, 12)}...' : _cleanName(u),
+                    style: const TextStyle(fontSize: 9),
+                    overflow: TextOverflow.ellipsis),
               ]),
             ),
           ),
@@ -1329,7 +1398,7 @@ class _NoteEditorState extends State<NoteEditor> {
       ),
       body: Column(children: [
         Container(
-          height: 60,
+          height: 66,
           decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: Colors.grey[800]!))),
           child: ListView.builder(
@@ -1341,8 +1410,9 @@ class _NoteEditorState extends State<NoteEditor> {
                 child: ChoiceChip(
                   selected: _tab == i,
                   onSelected: (_) => setState(() => _tab = i),
-                  avatar: Icon(tabIcons[i], size: 18),
-                  label: Text(tabLabels[i]),
+                  avatar: Icon(tabIcons[i], size: 20),
+                  label: Text(tabLabels[i], style: const TextStyle(fontSize: 13)),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                   selectedColor: const Color(0xFFF5C542),
                   labelStyle: TextStyle(
                       color: _tab == i ? Colors.black : Colors.grey,

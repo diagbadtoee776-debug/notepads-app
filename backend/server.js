@@ -22,12 +22,12 @@ function saveData() {
 }
 
 const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = (req.headers.authorization || '').split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
     req.user = jwt.verify(token, SECRET);
     next();
-  } catch {
+  } catch (e) {
     res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -100,10 +100,10 @@ app.post('/share', auth, (req, res) => {
 const upload = multer({ dest: 'uploads/' });
 app.post('/upload', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
-  const ext = path.extname(req.file.originalname);
-  const newName = `${Date.now()}${ext}`;
+  const safe = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const newName = Date.now() + '_' + safe;
   fs.renameSync(req.file.path, path.join('uploads', newName));
-  res.json({ url: `/uploads/${newName}` });
+  res.json({ url: '/uploads/' + newName });
 });
 
 app.listen(5000, () => console.log('🚀 DevVault API running on port 5000'));
